@@ -6,7 +6,8 @@ export async function onRequestPost({request,env}){
  const user=await currentUser(request,env);if(!user)return json({error:"يلزم تسجيل الدخول."},401);
  try{
   const body=await request.json();if(!body.ciphertext||!Array.isArray(body.shares)||body.shares.length>101)return json({error:"بيانات الصورة المشفّرة غير مكتملة."},400);
-  const ciphertext=fromB64(body.ciphertext);if(!ciphertext.length||ciphertext.length>5*1024*1024)return json({error:"حجم الصورة المشفّرة يجب ألا يتجاوز 5 ميغابايت."},413);\n  const contentType=String(body.contentType||"image/jpeg");if(!["image/jpeg","image/png","image/webp","image/gif","image/avif"].includes(contentType))return json({error:"صيغة الصورة غير مدعومة."},400);
+  const ciphertext=fromB64(body.ciphertext);if(!ciphertext.length||ciphertext.length>5*1024*1024)return json({error:"حجم الصورة المشفّرة يجب ألا يتجاوز 5 ميغابايت."},413);
+  const contentType=String(body.contentType||"image/jpeg");if(!["image/jpeg","image/png","image/webp","image/gif","image/avif"].includes(contentType))return json({error:"صيغة الصورة غير مدعومة."},400);
   const self=await env.DB.prepare("SELECT public_key FROM user_crypto_keys WHERE user_id=?").bind(user.id).first();if(!self?.public_key)return json({error:"مفتاح التشفير غير مهيأ."},409);
   const seen=new Set();
   for(const s of body.shares){const id=String(s.userId||"");if(!id||seen.has(id)||!s.iv||!s.wrappedKey||!await isFriend(env,user.id,id))return json({error:"مشاركة مفتاح غير صالحة أو مع مستخدم ليس صديقاً."},403);seen.add(id);if(fromB64(s.iv).length!==12||fromB64(s.wrappedKey).length!==48)return json({error:"صيغة مفتاح الصورة غير صحيحة."},400)}

@@ -30,7 +30,7 @@
 </main></div><nav class="bottom-nav"><div class="nav-inner"><button class="nav-item active" data-page="home" onclick="navigate('home',this)"><strong><i data-lucide="clapperboard"></i></strong>الفيديوهات</button><button class="nav-item" data-page="friends" onclick="navigate('friends',this)"><strong><i data-lucide="users-round"></i></strong>الأصدقاء</button><button class="nav-item" data-page="profile" onclick="navigate('profile',this)"><strong><i data-lucide="user-round"></i></strong>ملفي</button><button class="nav-item" data-page="settings" onclick="navigate('settings',this)"><strong><i data-lucide="settings-2"></i></strong>الإعدادات</button></div></nav></div>
 <div class="toast" id="toast"></div>
 <script>
-let userName='مستخدم RIVO',userEmail='',userHandle='',profileCryptoKey=null,profileSalt='',avatarObjectUrl=null,activeFriend='';
+let userName='مستخدم RIVO',userEmail='',userHandle='',profileCryptoKey=null,profileSalt='',avatarObjectUrl=null,activeFriend='',activeFriendId='',friendData=[];
 const enc=new TextEncoder(),dec=new TextDecoder();
 function renderIcons(){if(window.lucide)lucide.createIcons()}
 function toast(m){const e=document.getElementById('toast');e.textContent=m;e.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>e.classList.remove('show'),2600)}

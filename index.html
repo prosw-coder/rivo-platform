@@ -31,7 +31,7 @@
 </main></div><nav class="bottom-nav"><div class="nav-inner"><button class="nav-item active" data-page="conversations" onclick="navigate('conversations',this)"><strong><i data-lucide="messages-square"></i></strong>المحادثات</button><button class="nav-item" data-page="home" onclick="navigate('home',this)"><strong><i data-lucide="clapperboard"></i></strong>الفيديوهات</button><button class="nav-item" data-page="friends" onclick="navigate('friends',this)"><strong><i data-lucide="users-round"></i></strong>الأصدقاء</button><button class="nav-item" data-page="profile" onclick="navigate('profile',this)"><strong><i data-lucide="user-round"></i></strong>ملفي</button><button class="nav-item" data-page="settings" onclick="navigate('settings',this)"><strong><i data-lucide="settings-2"></i></strong>الإعدادات</button></div></nav></div>
 <div class="toast" id="toast"></div>
 <script>
-let userName='مستخدم RIVO',userEmail='',userHandle='',profileCryptoKey=null,profileSalt='',avatarObjectUrl=null,activeFriend='',activeFriendId='',friendData=[];
+let currentUserId='',userName='مستخدم RIVO',userEmail='',userHandle='',profileCryptoKey=null,profileSalt='',avatarObjectUrl=null,activeFriend='',activeFriendId='',friendData=[];
 const enc=new TextEncoder(),dec=new TextDecoder();
 function renderIcons(){if(window.lucide)lucide.createIcons()}
 function toast(m){const e=document.getElementById('toast');e.textContent=m;e.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>e.classList.remove('show'),2600)}
@@ -44,22 +44,82 @@ function openRivoKeyDB(){return new Promise((resolve,reject)=>{const req=indexed
 async function saveRememberedKey(key){const db=await openRivoKeyDB();await new Promise((resolve,reject)=>{const tx=db.transaction('keys','readwrite');tx.objectStore('keys').put({key,createdAt:Date.now()},'profile-key');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}
 async function getRememberedKey(){const db=await openRivoKeyDB();const value=await new Promise((resolve,reject)=>{const tx=db.transaction('keys','readonly'),req=tx.objectStore('keys').get('profile-key');req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)});db.close();if(!value||Date.now()-value.createdAt>30*24*60*60*1000){await clearRememberedKey();return null}return value.key}
 async function clearRememberedKey(){try{const db=await openRivoKeyDB();await new Promise((resolve,reject)=>{const tx=db.transaction('keys','readwrite');tx.objectStore('keys').delete('profile-key');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch{}}
-async function restoreRivoSession(){try{const rememberedKey=await getRememberedKey();if(!rememberedKey)return;const session=await api('/api/me');if(!session.authenticated)return;profileCryptoKey=rememberedKey;profileSalt=session.profileSalt;const profile=await decryptProfile(session.profileCipher,session.profileIv,profileCryptoKey);userName=profile.name||session.handle;userEmail=profile.email||'';userHandle=session.handle;window.userBio=profile.bio||'';showApp();if(session.avatarKey)await loadAvatar()}catch(e){profileCryptoKey=null;await clearRememberedKey();showLogin()}}
+async function restoreRivoSession(){try{const rememberedKey=await getRememberedKey();if(!rememberedKey)return;const session=await api('/api/me');if(!session.authenticated)return;profileCryptoKey=rememberedKey;profileSalt=session.profileSalt;currentUserId=session.id;await rivoEnsureCrypto();const profile=await decryptProfile(session.profileCipher,session.profileIv,profileCryptoKey);userName=profile.name||session.handle;userEmail=profile.email||'';userHandle=session.handle;window.userBio=profile.bio||'';showApp();if(session.avatarKey)await loadAvatar()}catch(e){profileCryptoKey=null;await clearRememberedKey();showLogin()}}
 
 async function api(path,method='GET',body=null){const opts={method,credentials:'same-origin',headers:{}};if(body!==null){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body)}const res=await fetch(path,opts);let data={};try{data=await res.json()}catch{}if(!res.ok)throw new Error(data.error||'حدث خطأ في الاتصال');return data}
 function showSignup(){document.getElementById('loginForm').classList.add('hidden');document.getElementById('signupForm').classList.remove('hidden')}
 function showLogin(){document.getElementById('signupForm').classList.add('hidden');document.getElementById('loginForm').classList.remove('hidden')}
 function showApp(){renderIcons();document.getElementById('authScreen').classList.add('hidden');document.getElementById('app').classList.remove('hidden');document.getElementById('profileName').textContent=userName;document.getElementById('profileHandle').textContent='@'+userHandle;document.getElementById('profileEmail').textContent='البريد الإلكتروني محفوظ بشكل مشفّر';document.getElementById('editName').value=userName;document.getElementById('editBio').value=window.userBio||'';document.getElementById('profileAvatar').textContent=userName.slice(0,1);document.getElementById('headerTitle').innerHTML='الفيديوهات<span class="header-sub">شارك لحظاتك مع أصدقائك</span>'}
-async function demoSignup(){const name=document.getElementById('signupName').value.trim(),handle=document.getElementById('signupHandle').value.trim().toLowerCase(),email=document.getElementById('signupEmail').value.trim().toLowerCase(),password=document.getElementById('signupPassword').value;if(!name||!handle||!email||password.length<10){toast('أكمل البيانات وتأكد من كلمة مرور لا تقل عن 10 أحرف');return}try{const salt=crypto.getRandomValues(new Uint8Array(16));profileSalt=toB64(salt);profileCryptoKey=await deriveProfileKey(password,profileSalt);const encrypted=await encryptProfile({name,bio:'',email,handle},profileCryptoKey);const result=await api('/api/register','POST',{handle,email,password,profileCipher:encrypted.profileCipher,profileIv:encrypted.profileIv,profileSalt});userName=name;userEmail=email;userHandle=result.handle;window.userBio='';await saveRememberedKey(profileCryptoKey);showApp();toast('تم إنشاء حسابك الخاص بنجاح')}catch(e){profileCryptoKey=null;toast(e.message)}}
-async function demoLogin(){const email=document.getElementById('loginEmail').value.trim().toLowerCase(),password=document.getElementById('loginPassword').value;if(!email||!password){toast('أدخل البريد وكلمة المرور');return}try{const result=await api('/api/login','POST',{email,password});profileSalt=result.profileSalt;profileCryptoKey=await deriveProfileKey(password,profileSalt);const profile=await decryptProfile(result.profileCipher,result.profileIv,profileCryptoKey);userName=profile.name||result.handle;userEmail=profile.email||email;userHandle=result.handle;window.userBio=profile.bio||'';await saveRememberedKey(profileCryptoKey);showApp();if(result.avatarKey)await loadAvatar();toast('أهلاً بعودتك إلى RIVO')}catch(e){profileCryptoKey=null;toast(e.message)}}
+async function demoSignup(){const name=document.getElementById('signupName').value.trim(),handle=document.getElementById('signupHandle').value.trim().toLowerCase(),email=document.getElementById('signupEmail').value.trim().toLowerCase(),password=document.getElementById('signupPassword').value;if(!name||!handle||!email||password.length<10){toast('أكمل البيانات وتأكد من كلمة مرور لا تقل عن 10 أحرف');return}try{const salt=crypto.getRandomValues(new Uint8Array(16));profileSalt=toB64(salt);profileCryptoKey=await deriveProfileKey(password,profileSalt);const encrypted=await encryptProfile({name,bio:'',email,handle},profileCryptoKey);const result=await api('/api/register','POST',{handle,email,password,profileCipher:encrypted.profileCipher,profileIv:encrypted.profileIv,profileSalt});userName=name;userEmail=email;userHandle=result.handle;currentUserId=result.id;window.userBio='';await rivoEnsureCrypto();await saveRememberedKey(profileCryptoKey);showApp();toast('تم إنشاء حسابك الخاص بنجاح')}catch(e){profileCryptoKey=null;toast(e.message)}}
+async function demoLogin(){const email=document.getElementById('loginEmail').value.trim().toLowerCase(),password=document.getElementById('loginPassword').value;if(!email||!password){toast('أدخل البريد وكلمة المرور');return}try{const result=await api('/api/login','POST',{email,password});profileSalt=result.profileSalt;profileCryptoKey=await deriveProfileKey(password,profileSalt);const profile=await decryptProfile(result.profileCipher,result.profileIv,profileCryptoKey);userName=profile.name||result.handle;userEmail=profile.email||email;userHandle=result.handle;currentUserId=result.id;window.userBio=profile.bio||'';await rivoEnsureCrypto();await saveRememberedKey(profileCryptoKey);showApp();if(result.avatarKey)await loadAvatar();toast('أهلاً بعودتك إلى RIVO')}catch(e){profileCryptoKey=null;toast(e.message)}}
 function navigate(page){['welcomePane','threadPane','conversationsPage','friendsPage','profilePage','settingsPage'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));const titles={home:'الفيديوهات',conversations:'المحادثات',friends:'الأصدقاء',profile:'الملف الشخصي',settings:'الإعدادات'};document.getElementById('headerTitle').innerHTML=titles[page]+'<span class="header-sub">RIVO</span>';if(page==='home'){if(activeFriend)document.getElementById('threadPane').classList.remove('hidden');else document.getElementById('welcomePane').classList.remove('hidden')}else document.getElementById(page+'Page').classList.remove('hidden');renderIcons()}
 function openThread(name,letter,index){activeFriend=name;document.getElementById('welcomePane').classList.add('hidden');document.getElementById('friendsPage').classList.add('hidden');document.getElementById('conversationsPage').classList.add('hidden');document.getElementById('profilePage').classList.add('hidden');document.getElementById('settingsPage').classList.add('hidden');document.getElementById('threadPane').classList.remove('hidden');document.getElementById('threadName').textContent=name;document.getElementById('threadAvatar').textContent=letter;document.getElementById('composeName').textContent=name;document.getElementById('headerTitle').innerHTML=name+'<span class="header-sub">صديق على RIVO</span>';document.querySelectorAll('.friend-row').forEach((r,i)=>r.classList.toggle('active',i===index));document.querySelectorAll('.video-message').forEach(m=>{m.onclick=()=>{m.classList.remove('is-open');void m.offsetWidth;m.classList.add('is-open')}});renderIcons();document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page==='home'))}
 function closeThread(){activeFriend='';document.getElementById('threadPane').classList.add('hidden');document.getElementById('welcomePane').classList.remove('hidden');document.querySelectorAll('.friend-row').forEach(r=>r.classList.remove('active'))}
 function searchFriends(q){document.querySelectorAll('.friend-row').forEach(r=>r.style.display=r.dataset.name.includes(q)?'flex':'none')}
 async function saveProfile(){const n=document.getElementById('editName').value.trim(),bio=document.getElementById('editBio').value.trim();if(!n){toast('اكتب الاسم أولاً');return}try{const encrypted=await encryptProfile({name:n,bio,email:userEmail,handle:userHandle},profileCryptoKey);await api('/api/me','PUT',encrypted);userName=n;window.userBio=bio;document.getElementById('profileName').textContent=n;toast('تم حفظ الملف الشخصي المشفّر')}catch(e){toast(e.message)}}
-async function uploadAvatar(file){if(!file||!profileCryptoKey)return;if(!file.type.startsWith('image/')||file.size>4*1024*1024){toast('اختر صورة أقل من 4 ميغابايت');return}try{const plain=await file.arrayBuffer(),iv=crypto.getRandomValues(new Uint8Array(12)),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},profileCryptoKey,plain);const payload=new Uint8Array(iv.length+cipher.byteLength);payload.set(iv);payload.set(new Uint8Array(cipher),iv.length);const res=await fetch('/api/avatar',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream'},body:payload});const data=await res.json();if(!res.ok)throw new Error(data.error||'تعذر رفع الصورة');await loadAvatar();toast('تم حفظ صورتك الشخصية بشكل مشفّر')}catch(e){toast(e.message)}}
-async function loadAvatar(){try{const res=await fetch('/api/avatar',{credentials:'same-origin'});if(!res.ok)return;const bytes=new Uint8Array(await res.arrayBuffer());const iv=bytes.slice(0,12),cipher=bytes.slice(12);const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv},profileCryptoKey,cipher);const blob=new Blob([plain],{type:'image/jpeg'});if(avatarObjectUrl)URL.revokeObjectURL(avatarObjectUrl);avatarObjectUrl=URL.createObjectURL(blob);document.getElementById('profileAvatar').innerHTML='<img alt="الصورة الشخصية" src="'+avatarObjectUrl+'">'}catch{toast('تعذر فك تشفير الصورة على هذا الجهاز')}}
-async function logout(){try{await api('/api/logout','POST',{})}catch{}await clearRememberedKey();profileCryptoKey=null;profileSalt='';userEmail='';userHandle='';document.getElementById('app').classList.add('hidden');document.getElementById('authScreen').classList.remove('hidden');showLogin();toast('تم تسجيل الخروج')}
+function rivoOpenKeyDB(){return openRivoKeyDB()}
+async function rivoDbGet(k){const db=await rivoOpenKeyDB();const v=await new Promise((resolve,reject)=>{const tx=db.transaction('keys','readonly'),q=tx.objectStore('keys').get(k);q.onsuccess=()=>resolve(q.result||null);q.onerror=()=>reject(q.error)});db.close();return v}
+async function rivoDbPut(k,v){const db=await rivoOpenKeyDB();await new Promise((resolve,reject)=>{const tx=db.transaction('keys','readwrite');tx.objectStore('keys').put(v,k);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}
+async function rivoEnsureCrypto(){
+ let pair=await rivoDbGet('avatar-ecdh');
+ if(!pair){const generated=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},false,['deriveBits']);const pub=await crypto.subtle.exportKey('raw',generated.publicKey);pair={privateKey:generated.privateKey,publicKey:toB64(pub)};await rivoDbPut('avatar-ecdh',pair)}
+ await api('/api/avatar-keys','POST',{action:'publish',publicKey:pair.publicKey});
+ return pair;
+}
+async function rivoWrapKeyFor(userId,publicB64,imageKey,pair){
+ const pub=await crypto.subtle.importKey('raw',fromB64(publicB64),{name:'ECDH',namedCurve:'P-256'},false,[]);
+ const bits=await crypto.subtle.deriveBits({name:'ECDH',public:pub},pair.privateKey,256);
+ const material=await crypto.subtle.importKey('raw',bits,'HKDF',false,['deriveKey']);
+ const ids=[currentUserId,userId].sort().join(':');
+ const wrapping=await crypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:enc.encode('rivo-avatar-v1:'+ids),info:enc.encode('avatar-key-wrap')},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+ const raw=await crypto.subtle.exportKey('raw',imageKey),iv=crypto.getRandomValues(new Uint8Array(12));
+ const wrapped=await crypto.subtle.encrypt({name:'AES-GCM',iv},wrapping,raw);
+ return {userId,iv:toB64(iv),wrappedKey:toB64(wrapped)};
+}
+async function rivoGetCryptoFriends(){const d=await api('/api/avatar-keys');return (d.friends||[]).filter(x=>x.public_key)}
+async function uploadAvatar(file){
+ if(!file||!profileCryptoKey)return;
+ if(!file.type.startsWith('image/')||file.size>4*1024*1024){toast('اختر صورة أقل من 4 ميغابايت');return}
+ try{
+  const pair=await rivoEnsureCrypto(),imageKey=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+  const plain=await file.arrayBuffer(),iv=crypto.getRandomValues(new Uint8Array(12));
+  const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},imageKey,plain);
+  const payload=new Uint8Array(iv.length+cipher.byteLength);payload.set(iv);payload.set(new Uint8Array(cipher),iv.length);
+  const friends=await rivoGetCryptoFriends(),shares=[];
+  shares.push(await rivoWrapKeyFor(currentUserId,pair.publicKey,imageKey,pair));
+  for(const friend of friends)shares.push(await rivoWrapKeyFor(friend.id,friend.public_key,imageKey,pair));
+  await api('/api/avatar','POST',{ciphertext:toB64(payload),shares});
+  await rivoDbPut('avatar-aes-key',imageKey);
+  await loadAvatar();toast('تم تشفير الصورة ومشاركتها مع أصدقائك المقبولين فقط');
+ }catch(e){toast(e.message||'تعذر رفع الصورة')}
+}
+async function rivoDecryptAvatar(ownerId,element){
+ try{
+  const pair=await rivoEnsureCrypto();
+  const data=await api('/api/avatar?userId='+encodeURIComponent(ownerId));
+  const ownerPub=await crypto.subtle.importKey('raw',fromB64(data.ownerPublicKey),{name:'ECDH',namedCurve:'P-256'},false,[]);
+  const bits=await crypto.subtle.deriveBits({name:'ECDH',public:ownerPub},pair.privateKey,256);
+  const material=await crypto.subtle.importKey('raw',bits,'HKDF',false,['deriveKey']);
+  const ids=[currentUserId,ownerId].sort().join(':');
+  const wrapping=await crypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:enc.encode('rivo-avatar-v1:'+ids),info:enc.encode('avatar-key-wrap')},material,{name:'AES-GCM',length:256},false,['decrypt']);
+  const raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:fromB64(data.wrapIv)},wrapping,fromB64(data.wrappedKey));
+  const imageKey=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);
+  const packed=fromB64(data.ciphertext),iv=packed.slice(0,12),cipher=packed.slice(12);
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv},imageKey,cipher);
+  const blob=new Blob([plain]),url=URL.createObjectURL(blob);
+  const img=document.createElement('img');img.alt='الصورة الشخصية';img.src=url;img.style.cssText='width:100%;height:100%;object-fit:cover;border-radius:inherit';
+  element.replaceChildren(img);
+ }catch(e){/* الصورة القديمة تحتاج إعادة رفع، أو لا يملك الحساب مشاركة صالحة */}
+}
+async function loadAvatar(){if(!currentUserId)return;const el=document.getElementById('profileAvatar');if(el)await rivoDecryptAvatar(currentUserId,el)}
+window.rivoLoadFriendAvatars=function(){document.querySelectorAll('[data-avatar-user]').forEach(function(el){if(!el.dataset.avatarLoaded){el.dataset.avatarLoaded='1';rivoDecryptAvatar(el.dataset.avatarUser,el)}})};
+async function rivoShareAvatarWithNewFriends(){
+ const imageKey=await rivoDbGet('avatar-aes-key');if(!imageKey)return;
+ const pair=await rivoEnsureCrypto(),friends=await rivoGetCryptoFriends(),shares=[];
+ for(const friend of friends)shares.push(await rivoWrapKeyFor(friend.id,friend.public_key,imageKey,pair));
+ if(shares.length)await api('/api/avatar-keys','POST',{action:'share',shares});
+}
+async function logout(){try{await api('/api/logout','POST',{})}catch{}await clearRememberedKey();profileCryptoKey=null;profileSalt='';currentUserId='';userEmail='';userHandle='';document.getElementById('app').classList.add('hidden');document.getElementById('authScreen').classList.remove('hidden');showLogin();toast('تم تسجيل الخروج')}
 restoreRivoSession();
 </script>
 <script src="/rivo-app.js"></script>

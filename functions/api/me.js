@@ -8,8 +8,9 @@ export async function onRequestPut({ request, env }) {
   const user = await currentUser(request, env);
   if (!user) return json({ error: "يلزم تسجيل الدخول." }, 401);
   try {
+    if(Number(request.headers.get("content-length")||0)>16384)return json({error:"حجم الملف الشخصي أكبر من المسموح."},413);
     const body = await request.json();
-    if (!body.profileCipher || !body.profileIv || !body.profileSalt) return json({ error: "الملف المشفّر غير مكتمل." }, 400);
+    if (!body.profileCipher || String(body.profileCipher).length>12000 || !body.profileIv || String(body.profileIv).length>64 || !body.profileSalt || String(body.profileSalt).length>128) return json({ error: "الملف المشفّر غير مكتمل." }, 400);
     await env.DB.prepare("UPDATE users SET profile_cipher=?,profile_iv=?,profile_salt=? WHERE id=?")
       .bind(String(body.profileCipher), String(body.profileIv), String(body.profileSalt), user.id).run();
     return json({ ok: true });

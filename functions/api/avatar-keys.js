@@ -23,6 +23,8 @@ export async function onRequestPost({request,env}) {
     const friendId=String(s.userId||"");
     const friend=await env.DB.prepare("SELECT id FROM friend_requests WHERE status='accepted' AND ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))").bind(me.id,friendId,friendId,me.id).first();
     if(!friend||!s.iv||!s.wrappedKey)return json({error:"لا يمكن مشاركة مفتاح الصورة مع هذا المستخدم."},403);
+    const ivBytes=Uint8Array.from(atob(String(s.iv)),c=>c.charCodeAt(0)),keyBytes=Uint8Array.from(atob(String(s.wrappedKey)),c=>c.charCodeAt(0));
+    if(ivBytes.length!==12||keyBytes.length!==48)return json({error:"صيغة مفتاح الصورة غير صالحة."},400);
     await env.DB.prepare("INSERT INTO avatar_key_shares(owner_id,friend_id,avatar_key,wrap_iv,wrapped_key,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(owner_id,friend_id) DO UPDATE SET avatar_key=excluded.avatar_key,wrap_iv=excluded.wrap_iv,wrapped_key=excluded.wrapped_key,created_at=excluded.created_at").bind(me.id,friendId,owner.avatar_key,String(s.iv),String(s.wrappedKey),new Date().toISOString()).run();
    }
    return json({ok:true});

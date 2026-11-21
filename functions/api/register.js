@@ -12,9 +12,14 @@ export async function onRequestPost({ request, env }) {
     if (!/^[a-z0-9_]{4,24}$/.test(handle)) return json({ error: "المعرّف يجب أن يكون 4 إلى 24 حرفاً أو رقماً أو _." }, 400);
     if (password.length < 10) return json({ error: "كلمة المرور يجب أن تكون 10 أحرف على الأقل." }, 400);
     if (!profileCipher || !profileIv || !profileSalt) return json({ error: "بيانات الملف المشفّرة غير مكتملة." }, 400);
-    const emailHash = await sha256(email);\n    const ip = request.headers.get("CF-Connecting-IP") || "unknown";\n    const limitKey = await sha256("register:"+ip);\n    const limit = await consumeRateLimit(env,limitKey,5,30*60*1000,30*60*1000);\n    if(!limit.allowed) return json({error:"تم تجاوز عدد محاولات إنشاء الحساب. حاول لاحقاً."},429,{"retry-after":String(limit.retryAfter)});
+    const emailHash = await sha256(email);
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const limitKey = await sha256("register:"+ip);
+    const limit = await consumeRateLimit(env,limitKey,5,30*60*1000,30*60*1000);
+    if(!limit.allowed) return json({error:"تم تجاوز عدد محاولات إنشاء الحساب. حاول لاحقاً."},429,{"retry-after":String(limit.retryAfter)});
     const passwordSalt = newToken(16);
-    const passwordIterations = 600000;\n    const passwordDigest = await passwordHash(password, passwordSalt, passwordIterations);
+    const passwordIterations = 600000;
+    const passwordDigest = await passwordHash(password, passwordSalt, passwordIterations);
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO users (id,handle,email_hash,password_salt,password_hash,password_iterations,profile_cipher,profile_iv,profile_salt,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .bind(id, handle, emailHash, passwordSalt, passwordDigest, passwordIterations, profileCipher, profileIv, profileSalt, new Date().toISOString()).run();

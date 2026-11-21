@@ -42,13 +42,23 @@ export async function startSession(userId, env) {
 
 export async function consumeRateLimit(env, keyHash, maxAttempts = 8, windowMs = 15 * 60 * 1000, blockMs = 15 * 60 * 1000) {
   const now = Date.now();
-  const current = await env.DB.prepare("SELECT window_start,attempts,blocked_until FROM auth_rate_limits WHERE key_hash=?").bind(keyHash).first();
-  if (current?.blocked_until && Number(current.blocked_until) > now) return { allowed:false, retryAfter:Math.ceil((Number(current.blocked_until)-now)/1000) };
-  const reset = !current || Number(current.window_start) <= now - windowMs;
-  const attempts = reset ? 1 : Number(current.attempts) + 1;
-  const windowStart = reset ? now : Number(current.window_start);
-  const blockedUntil = attempts > maxAttempts ? now + blockMs : null;
-  await env.DB.prepare("INSERT INTO auth_rate_limits(key_hash,window_start,attempts,blocked_until) VALUES(?,?,?,?) ON CONFLICT(key_hash) DO UPDATE SET window_start=excluded.window_start,attempts=excluded.attempts,blocked_until=excluded.blocked_until")
-    .bind(keyHash,windowStart,attempts,blockedUntil).run();
-  return { allowed:!blockedUntil, retryAfter:blockMs/1000 };
+  const current = await env.DB.prepare("SELECT blocked_until FROM auth_rate_limits WHERE key_hash=?").bind(keyHash).first();
+  if (current?.blocked_until && Number(current.blocked_until) > now) {
+    return { allowed:false, retryAfter:Math.ceil((Number(current.blocked_until)-now)/1000) };
+  }
+  const row = await env.DB.prepare(`
+    INSERT INTO auth_rate_limits(key_hash,window_start,attempts,blocked_until)
+    VALUES(?,?,1,NULL)
+    ON CONFLICT(key_hash) DO UPDATE SET
+      window_start=CASE WHEN auth_rate_limits.window_start<=? THEN excluded.window_start ELSE auth_rate_limits.window_start END,
+      attempts=CASE WHEN auth_rate_limits.window_start<=? THEN 1 ELSE auth_rate_limits.attempts+1 END,
+      blocked_until=CASE
+        WHEN auth_rate_limits.blocked_until>? THEN auth_rate_limits.blocked_until
+        WHEN (CASE WHEN auth_rate_limits.window_start<=? THEN 1 ELSE auth_rate_limits.attempts+1 END)>? THEN ?
+        ELSE NULL
+      END
+    RETURNING attempts,blocked_until
+  `).bind(keyHash,now,now-windowMs,now-windowMs,now,now-windowMs,maxAttempts,now+blockMs).first();
+  const blocked = Number(row?.blocked_until||0)>now;
+  return { allowed:!blocked, retryAfter:blocked?Math.ceil((Number(row.blocked_until)-now)/1000):blockMs/1000 };
 }

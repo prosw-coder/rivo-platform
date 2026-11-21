@@ -44,9 +44,9 @@ window.uploadVideo=async function(file){
 async function rivoUploadPrepared(file,dimensions){
  var box=document.getElementById("threadContent"),progress=document.createElement("div");
  progress.className="video-upload-card";
- progress.innerHTML='<div class="upload-ring" style="--progress:0deg"><span>0%</span></div><div class="upload-copy"><b>جارٍ إرسال الفيديو...</b><small>سيظهر داخل المحادثة بعد اكتمال الرفع</small></div>';
+ progress.innerHTML='<div class="upload-ring" style="--progress:0deg"><i data-lucide="video"></i></div><div class="upload-copy"><b>جارٍ إرسال الفيديو · <span class="upload-percent">0%</span></b><small>سيظهر داخل المحادثة بعد اكتمال الرفع</small></div>';
  box.appendChild(progress);box.scrollTop=box.scrollHeight;
- var ring=progress.querySelector(".upload-ring"),label=progress.querySelector(".upload-copy b");
+ var ring=progress.querySelector(".upload-ring"),label=progress.querySelector(".upload-copy b"),percentLabel=progress.querySelector(".upload-percent");if(window.lucide)lucide.createIcons();
  try{
   var start=await api("/api/videos/upload","POST",{action:"create",recipientId:activeFriendId,fileName:file.name,mimeType:file.type||"video/mp4",fileSize:file.size,width:dimensions.width,height:dimensions.height});
   var partSize=start.partSize||8388608,parts=[],count=Math.ceil(file.size/partSize),uploaded=0,next=0,failed=null;
@@ -55,11 +55,11 @@ async function rivoUploadPrepared(file,dimensions){
    var res=await fetch("/api/videos/upload?id="+encodeURIComponent(start.id)+"&uploadId="+encodeURIComponent(start.uploadId)+"&partNumber="+(i+1),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/octet-stream"},body:chunk});
    var p=await res.json();if(!res.ok)throw new Error(p.error||"تعذر رفع جزء من الفيديو");
    parts[i]={partNumber:p.partNumber,etag:p.etag};uploaded+=chunk.size;
-   var pct=Math.min(99,Math.round(uploaded/file.size*100));ring.style.setProperty("--progress",(pct*3.6)+"deg");ring.querySelector("span").textContent=pct+"%";label.textContent="جارٍ إرسال الفيديو · "+pct+"%";
+   var pct=Math.min(99,Math.round(uploaded/file.size*100));ring.style.setProperty("--progress",(pct*3.6)+"deg");percentLabel.textContent=pct+"%";label.firstChild.textContent="جارٍ إرسال الفيديو · ";
   }catch(e){failed=e}}}
   await Promise.all([worker(),worker(),worker()]);if(failed)throw failed;
   await api("/api/videos/upload","POST",{action:"complete",id:start.id,parts:parts});
-  ring.style.setProperty("--progress","360deg");ring.querySelector("span").textContent="✓";label.textContent="تم الإرسال";
+  ring.style.setProperty("--progress","360deg");ring.innerHTML='<i data-lucide="check"></i>';label.textContent="تم الإرسال";if(window.lucide)lucide.createIcons();
   setTimeout(function(){progress.remove();rivoLoadVideos()},700);
  }catch(e){label.textContent="فشل الإرسال";progress.querySelector(".upload-copy small").textContent=e.message;progress.classList.add("upload-failed")}
 }

@@ -1,10 +1,11 @@
 import { json, sha256, passwordHash, cookie, startSession, consumeRateLimit } from "../_lib/auth.js";
 export async function onRequestPost({ request, env }) {
   try {
+    if(Number(request.headers.get("content-length")||0)>4096)return json({error:"حجم الطلب أكبر من المسموح."},413);
     const body = await request.json();
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");
-    if (!email || !password) return json({ error: "أدخل البريد الإلكتروني وكلمة المرور." }, 400);
+    if (!email || !password || email.length>254 || password.length>128) return json({ error: "بيانات الدخول غير صالحة." }, 400);
     const emailHash = await sha256(email);
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     const limitKey = await sha256("login:"+emailHash+":"+ip);

@@ -1,6 +1,7 @@
 import { json, sha256, passwordHash, newToken, cookie, startSession, consumeRateLimit } from "../_lib/auth.js";
 export async function onRequestPost({ request, env }) {
   try {
+    if(Number(request.headers.get("content-length")||0)>16384)return json({error:"حجم الطلب أكبر من المسموح."},413);
     const body = await request.json();
     const email = String(body.email || "").trim().toLowerCase();
     const handle = String(body.handle || "").trim().toLowerCase();
@@ -10,8 +11,8 @@ export async function onRequestPost({ request, env }) {
     const profileSalt = String(body.profileSalt || "");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "أدخل بريداً إلكترونياً صحيحاً." }, 400);
     if (!/^[a-z0-9_]{4,24}$/.test(handle)) return json({ error: "المعرّف يجب أن يكون 4 إلى 24 حرفاً أو رقماً أو _." }, 400);
-    if (password.length < 10) return json({ error: "كلمة المرور يجب أن تكون 10 أحرف على الأقل." }, 400);
-    if (!profileCipher || !profileIv || !profileSalt) return json({ error: "بيانات الملف المشفّرة غير مكتملة." }, 400);
+    if (password.length < 10 || password.length > 128) return json({ error: "كلمة المرور يجب أن تكون بين 10 و128 حرفاً." }, 400);
+    if (!profileCipher || profileCipher.length>12000 || !profileIv || profileIv.length>64 || !profileSalt || profileSalt.length>128) return json({ error: "بيانات الملف المشفّرة غير مكتملة أو كبيرة جداً." }, 400);
     const emailHash = await sha256(email);
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     const limitKey = await sha256("register:"+ip);

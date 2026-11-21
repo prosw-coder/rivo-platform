@@ -1,5 +1,5 @@
 import { json, currentUser } from "../_lib/auth.js";
-const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+const b64 = bytes => { const data=new Uint8Array(bytes); let out=""; for(let i=0;i<data.length;i+=32768) out+=String.fromCharCode(...data.subarray(i,i+32768)); return btoa(out); };
 const fromB64 = value => Uint8Array.from(atob(String(value)), c => c.charCodeAt(0));
 async function isFriend(env,a,b){if(a===b)return true;return !!(await env.DB.prepare("SELECT id FROM friend_requests WHERE status='accepted' AND ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))").bind(a,b,b,a).first())}
 export async function onRequestPost({request,env}){

@@ -54,4 +54,5 @@ async function uploadAvatar(file){if(!file||!profileCryptoKey)return;if(!file.ty
 async function loadAvatar(){try{const res=await fetch('/api/avatar',{credentials:'same-origin'});if(!res.ok)return;const bytes=new Uint8Array(await res.arrayBuffer());const iv=bytes.slice(0,12),cipher=bytes.slice(12);const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv},profileCryptoKey,cipher);const blob=new Blob([plain],{type:'image/jpeg'});if(avatarObjectUrl)URL.revokeObjectURL(avatarObjectUrl);avatarObjectUrl=URL.createObjectURL(blob);document.getElementById('profileAvatar').innerHTML='<img alt="الصورة الشخصية" src="'+avatarObjectUrl+'">'}catch{toast('تعذر فك تشفير الصورة على هذا الجهاز')}}
 async function logout(){try{await api('/api/logout','POST',{})}catch{}profileCryptoKey=null;profileSalt='';userEmail='';userHandle='';document.getElementById('app').classList.add('hidden');document.getElementById('authScreen').classList.remove('hidden');showLogin();toast('تم تسجيل الخروج')}
 </script>
+<script src="/rivo-app.js"></script>
 </body></html>

@@ -36,6 +36,7 @@ export async function onRequestPost({ request, env }) {
       const videoId=crypto.randomUUID();
       await env.DB.prepare("INSERT INTO videos (id,sender_id,recipient_id,object_key,file_name,mime_type,file_size,created_at,status) VALUES (?,?,?,?,?,?,?,?,'available')").bind(videoId,me.id,row.recipient_id,row.object_key,row.file_name,row.mime_type,row.file_size,new Date().toISOString()).run();
       await env.DB.prepare("DELETE FROM video_uploads WHERE id=?").bind(id).run();
+      await env.DB.prepare("DELETE FROM conversation_hides WHERE (user_id=? AND friend_id=?) OR (user_id=? AND friend_id=?)").bind(me.id,row.recipient_id,row.recipient_id,me.id).run();
       return json({ok:true,videoId,etag:completed.httpEtag});
     }
     return json({error:"إجراء غير معروف."},400);

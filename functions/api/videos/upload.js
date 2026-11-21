@@ -17,7 +17,7 @@ export async function onRequestPost({ request, env }) {
       if (longSide > 1920 || shortSide > 1080) return json({ error:"دقة الفيديو أعلى من الحد المسموح (1080p)." },413);
       const fileName = String(body.fileName || "video").replace(/[\\r\\n"]/g,"_").slice(0,180);
       if (!Number.isSafeInteger(size) || size < 1 || size > MAX_SIZE) return json({ error:"حجم الفيديو يجب ألا يتجاوز 5 جيجابايت." },413);
-      if (!mime.startsWith("video/")) return json({ error:"يمكن إرسال ملفات الفيديو فقط." },400);
+      if (!["video/mp4","video/webm","video/quicktime","video/ogg","video/3gpp","video/x-matroska"].includes(mime.toLowerCase())) return json({ error:"صيغة الفيديو غير مدعومة. استخدم MP4 أو WebM." },400);
       const friend = await env.DB.prepare("SELECT id FROM friend_requests WHERE status='accepted' AND ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))").bind(me.id,recipientId,recipientId,me.id).first();
       if (!friend) return json({ error:"يمكنك إرسال الفيديوهات إلى أصدقائك المقبولين فقط." },403);
       const id=crypto.randomUUID(), key="videos/"+me.id+"/"+id;
@@ -30,9 +30,13 @@ export async function onRequestPost({ request, env }) {
       const row=await env.DB.prepare("SELECT * FROM video_uploads WHERE id=? AND sender_id=?").bind(id,me.id).first();
       if (!row) return json({error:"جلسة رفع الفيديو غير موجودة."},404);
       const parts=Array.isArray(body.parts)?body.parts:[];
-      if (!parts.length || parts.length>10000 || parts.some(p=>!Number.isInteger(Number(p.partNumber)) || !p.etag)) return json({error:"بيانات أجزاء الفيديو غير مكتملة."},400);
+      const expectedParts=Math.ceil(row.file_size/(8*1024*1024));
+      const partNumbers=new Set(parts.map(p=>Number(p.partNumber)));
+      if (parts.length!==expectedParts || parts.some(p=>!Number.isInteger(Number(p.partNumber)) || Number(p.partNumber)<1 || Number(p.partNumber)>expectedParts || !p.etag || String(p.etag).length>200) || partNumbers.size!==parts.length) return json({error:"أجزاء الفيديو ناقصة أو غير صالحة."},400);
       const upload=env.MEDIA.resumeMultipartUpload(row.object_key,row.upload_id);
       const completed=await upload.complete(parts.map(p=>({partNumber:Number(p.partNumber),etag:String(p.etag)})));
+      const stored=await env.MEDIA.head(row.object_key);
+      if(!stored || stored.size!==row.file_size){await env.MEDIA.delete(row.object_key);return json({error:"حجم الفيديو المرفوع لا يطابق الحجم الأصلي."},400)}
       const videoId=crypto.randomUUID();
       await env.DB.prepare("INSERT INTO videos (id,sender_id,recipient_id,object_key,file_name,mime_type,file_size,created_at,status) VALUES (?,?,?,?,?,?,?,?,'available')").bind(videoId,me.id,row.recipient_id,row.object_key,row.file_name,row.mime_type,row.file_size,new Date().toISOString()).run();
       await env.DB.prepare("DELETE FROM video_uploads WHERE id=?").bind(id).run();

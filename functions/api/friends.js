@@ -3,7 +3,7 @@ export async function onRequestGet({ request, env }) {
   const me = await currentUser(request, env);
   if (!me) return json({ error: "يلزم تسجيل الدخول." }, 401);
   const [friends, incoming, outgoing] = await Promise.all([
-    env.DB.prepare("SELECT u.id,u.handle,f.created_at FROM friend_requests f JOIN users u ON u.id=CASE WHEN f.requester_id=? THEN f.addressee_id ELSE f.requester_id END WHERE f.status='accepted' AND (f.requester_id=? OR f.addressee_id=?) ORDER BY u.handle").bind(me.id,me.id,me.id).all(),
+    env.DB.prepare("SELECT u.id,u.handle,f.created_at,(SELECT COUNT(*) FROM videos v WHERE v.sender_id=u.id AND v.recipient_id=? AND v.status='available' AND v.recipient_read_at IS NULL) AS unread_count,EXISTS(SELECT 1 FROM conversation_hides h WHERE h.user_id=? AND h.friend_id=u.id) AS hidden_by_me FROM friend_requests f JOIN users u ON u.id=CASE WHEN f.requester_id=? THEN f.addressee_id ELSE f.requester_id END WHERE f.status='accepted' AND (f.requester_id=? OR f.addressee_id=?) ORDER BY u.handle").bind(me.id,me.id,me.id,me.id,me.id).all(),
     env.DB.prepare("SELECT f.id,u.id AS user_id,u.handle,f.created_at FROM friend_requests f JOIN users u ON u.id=f.requester_id WHERE f.addressee_id=? AND f.status='pending' ORDER BY f.created_at DESC").bind(me.id).all(),
     env.DB.prepare("SELECT f.id,u.id AS user_id,u.handle,f.created_at FROM friend_requests f JOIN users u ON u.id=f.addressee_id WHERE f.requester_id=? AND f.status='pending' ORDER BY f.created_at DESC").bind(me.id).all()
   ]);

@@ -9,6 +9,12 @@ export async function onRequestPost({ request, env }) {
       const recipientId = String(body.recipientId || "");
       const size = Number(body.fileSize);
       const mime = String(body.mimeType || "");
+      const width = Number(body.width);
+      const height = Number(body.height);
+      const longSide = Math.max(width, height);
+      const shortSide = Math.min(width, height);
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) return json({ error:"تعذر تحديد دقة الفيديو." },400);
+      if (longSide > 1920 || shortSide > 1080) return json({ error:"دقة الفيديو أعلى من الحد المسموح (1080p)." },413);
       const fileName = String(body.fileName || "video").replace(/[\\r\\n"]/g,"_").slice(0,180);
       if (!Number.isSafeInteger(size) || size < 1 || size > MAX_SIZE) return json({ error:"حجم الفيديو يجب ألا يتجاوز 5 جيجابايت." },413);
       if (!mime.startsWith("video/")) return json({ error:"يمكن إرسال ملفات الفيديو فقط." },400);

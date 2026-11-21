@@ -1,6 +1,6 @@
 export const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers } });
 export const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
-export const fromB64 = (value) => Uint8Array.from(atob(value), c => c.charCodeAt(0));
+export const fromB64 = (value) => { const normalized = value.replaceAll("-", "+").replaceAll("_", "/"); const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4); return Uint8Array.from(atob(padded), c => c.charCodeAt(0)); };
 export async function sha256(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return b64(bytes);

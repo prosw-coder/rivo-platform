@@ -5,9 +5,9 @@ export async function sha256(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return b64(bytes);
 }
-export async function passwordHash(password, salt) {
+export async function passwordHash(password, salt, iterations = 600000) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: fromB64(salt), iterations: 100000, hash: "SHA-256" }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: fromB64(salt), iterations, hash: "SHA-256" }, key, 256);
   return b64(bits);
 }
 export function newToken(bytes = 32) {
@@ -38,4 +38,17 @@ export async function startSession(userId, env) {
   const now = Date.now();
   await env.DB.prepare("INSERT INTO sessions (token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)").bind(tokenHash, userId, now + 30 * 24 * 60 * 60 * 1000, new Date(now).toISOString()).run();
   return token;
+}
+
+export async function consumeRateLimit(env, keyHash, maxAttempts = 8, windowMs = 15 * 60 * 1000, blockMs = 15 * 60 * 1000) {
+  const now = Date.now();
+  const current = await env.DB.prepare("SELECT window_start,attempts,blocked_until FROM auth_rate_limits WHERE key_hash=?").bind(keyHash).first();
+  if (current?.blocked_until && Number(current.blocked_until) > now) return { allowed:false, retryAfter:Math.ceil((Number(current.blocked_until)-now)/1000) };
+  const reset = !current || Number(current.window_start) <= now - windowMs;
+  const attempts = reset ? 1 : Number(current.attempts) + 1;
+  const windowStart = reset ? now : Number(current.window_start);
+  const blockedUntil = attempts > maxAttempts ? now + blockMs : null;
+  await env.DB.prepare("INSERT INTO auth_rate_limits(key_hash,window_start,attempts,blocked_until) VALUES(?,?,?,?) ON CONFLICT(key_hash) DO UPDATE SET window_start=excluded.window_start,attempts=excluded.attempts,blocked_until=excluded.blocked_until")
+    .bind(keyHash,windowStart,attempts,blockedUntil).run();
+  return { allowed:!blockedUntil, retryAfter:blockMs/1000 };
 }

@@ -2,7 +2,9 @@ import { json, currentUser } from "../_lib/auth.js";
 export async function onRequestGet({request,env}) {
   const me=await currentUser(request,env);
   if(!me) return json({error:"يلزم تسجيل الدخول."},401);
-  const cutoff=new Date(Date.now()-7*24*60*60*1000).toISOString();\n  await env.DB.prepare("DELETE FROM video_uploads WHERE created_at < ?").bind(cutoff).run();\n  const friendId=new URL(request.url).searchParams.get("friendId");
+  const cutoff=new Date(Date.now()-7*24*60*60*1000).toISOString();
+  await env.DB.prepare("DELETE FROM video_uploads WHERE created_at < ?").bind(cutoff).run();
+  const friendId=new URL(request.url).searchParams.get("friendId");
   if(!friendId) return json({error:"حدد الصديق."},400);
   const friend=await env.DB.prepare("SELECT id FROM friend_requests WHERE status='accepted' AND ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))").bind(me.id,friendId,friendId,me.id).first();
   if(!friend) return json({error:"هذا المستخدم ليس ضمن أصدقائك."},403);

@@ -1,4 +1,4 @@
-import { json, currentUser } from "../_lib/auth.js";
+import { json, currentUser, sha256, consumeRateLimit } from "../_lib/auth.js";
 export async function onRequestGet({ request, env }) {
   const me = await currentUser(request, env);
   if (!me) return json({ error: "يلزم تسجيل الدخول." }, 401);
@@ -16,6 +16,8 @@ export async function onRequestPost({ request, env }) {
     const body = await request.json();
     const action = String(body.action || "");
     if (action === "request") {
+      const requestLimit=await consumeRateLimit(env,await sha256("friend-request:"+me.id),30,60*60*1000,60*60*1000);
+      if(!requestLimit.allowed)return json({error:"وصلت للحد المؤقت لطلبات الصداقة. حاول لاحقاً."},429,{"retry-after":String(requestLimit.retryAfter)});
       const target = String(body.userId || "");
       if (!target || target === me.id) return json({ error: "اختر مستخدماً صالحاً." }, 400);
       const exists = await env.DB.prepare("SELECT id,status FROM friend_requests WHERE (requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)").bind(me.id,target,target,me.id).first();

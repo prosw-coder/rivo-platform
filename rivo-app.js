@@ -13,7 +13,57 @@ window.openThread=function(name,letter,index,id){activeFriend=name;activeFriendI
 window.showApp=(function(original){return function(){original();rivoLoadFriends()}})(window.showApp);
 window.navigate=(function(original){return function(page,el){original(page,el);if(page==="friends")rivoLoadFriends()}})(window.navigate);
 async function rivoLoadVideos(){var box=document.getElementById("threadContent");if(!activeFriendId){box.innerHTML='<p class="muted-note">اختر صديقاً لعرض الفيديوهات.</p>';return}box.innerHTML='<p class="muted-note">جارٍ تحميل الفيديوهات...</p>';try{var d=await api("/api/video-list?friendId="+encodeURIComponent(activeFriendId)),videos=d.videos||[];if(!videos.length){box.innerHTML='<div class="empty-state"><div class="empty-inner"><div class="empty-symbol"><i data-lucide="video"></i></div><h2>لا توجد فيديوهات بعد</h2><p>أرسل فيديو لصديقك أو انتظر فيديوهاته.</p></div></div>';if(window.lucide)lucide.createIcons();return}box.innerHTML=videos.map(function(v){var sent=v.sender_id!==activeFriendId;return '<article class="video-item '+(sent?"sent":"")+'"><div class="video-item-head"><i data-lucide="video"></i><div class="detail"><b>'+rivoEsc(v.file_name)+'</b><small>'+rivoSize(v.file_size)+' · '+new Date(v.created_at).toLocaleString("ar")+'</small></div></div>'+(sent?'<small>أرسلته إلى صديقك</small>':'<button class="video-download" data-download-id="'+rivoEsc(v.id)+'"><i data-lucide="download"></i> تنزيل الفيديو</button>')+'</article>'}).join("");if(window.lucide)lucide.createIcons()}catch(e){box.innerHTML='<p class="muted-note">'+rivoEsc(e.message)+'</p>'}}
-window.uploadVideo=async function(file){if(!file)return;if(!activeFriendId){toast("اختر صديقاً أولاً");return}if(!file.type.startsWith("video/")){toast("اختر ملف فيديو فقط");return}if(file.size>5*1024*1024*1024){toast("الحد الأقصى للفيديو 5 جيجابايت");return}var picker=document.getElementById("videoPicker");picker.value="";var box=document.getElementById("threadContent"),progress=document.createElement("div");progress.className="video-item";progress.innerHTML='<b>جارٍ تجهيز الفيديو...</b><div class="upload-progress"><span></span></div>';box.appendChild(progress);var bar=progress.querySelector("span");try{var start=await api("/api/videos/upload","POST",{action:"create",recipientId:activeFriendId,fileName:file.name,mimeType:file.type,fileSize:file.size}),partSize=start.partSize||8388608,parts=[],count=Math.ceil(file.size/partSize);for(var i=0;i<count;i++){var chunk=file.slice(i*partSize,Math.min(file.size,(i+1)*partSize)),res=await fetch("/api/videos/upload?id="+encodeURIComponent(start.id)+"&uploadId="+encodeURIComponent(start.uploadId)+"&partNumber="+(i+1),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/octet-stream"},body:chunk}),p=await res.json();if(!res.ok)throw new Error(p.error||"تعذر رفع جزء من الفيديو");parts.push({partNumber:p.partNumber,etag:p.etag});bar.style.width=Math.round((i+1)/count*100)+"%";progress.querySelector("b").textContent="رفع الفيديو "+Math.round((i+1)/count*100)+"%"}await api("/api/videos/upload","POST",{action:"complete",id:start.id,parts:parts});progress.remove();toast("تم إرسال الفيديو بنجاح");rivoLoadVideos()}catch(e){progress.remove();toast(e.message)}};
+async function rivoPrepare1080(file){
+ if(!file||!file.type.startsWith("video/")||!("MediaRecorder" in window))return file;
+ var url=URL.createObjectURL(file),video=document.createElement("video");
+ video.muted=true;video.playsInline=true;video.preload="auto";video.src=url;
+ try{
+  await new Promise(function(resolve,reject){video.onloadedmetadata=resolve;video.onerror=()=>reject(new Error("تعذر قراءة الفيديو"))});
+  var w=video.videoWidth||0,h=video.videoHeight||0;
+  if(!w||!h||Math.max(w,h)<=1080)return file;
+  var scale=Math.min(1,1920/w,1080/h),ow=Math.max(2,Math.round(w*scale/2)*2),oh=Math.max(2,Math.round(h*scale/2)*2);
+  var canvas=document.createElement("canvas");canvas.width=ow;canvas.height=oh;
+  var ctx=canvas.getContext("2d",{alpha:false}),stream=canvas.captureStream(30);
+  var capture=video.captureStream?video.captureStream():null;
+  if(capture)capture.getAudioTracks().forEach(function(t){stream.addTrack(t)});
+  var mime=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(function(t){return MediaRecorder.isTypeSupported(t)});
+  if(!mime)return file;
+  var recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:4500000,audioBitsPerSecond:128000}),chunks=[];
+  recorder.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data)};
+  var done=new Promise(function(resolve,reject){recorder.onerror=function(){reject(new Error("تعذر تحويل الفيديو على هذا الجهاز"))};recorder.onstop=function(){resolve(new Blob(chunks,{type:mime}))}});
+  var draw=function(){if(video.paused||video.ended)return;ctx.drawImage(video,0,0,ow,oh);requestAnimationFrame(draw)};
+  await video.play();ctx.drawImage(video,0,0,ow,oh);recorder.start(1000);requestAnimationFrame(draw);
+  await new Promise(function(resolve){video.onended=resolve});
+  if(recorder.state!=="inactive")recorder.stop();
+  var blob=await done;if(!blob.size)throw new Error("فشل تجهيز نسخة 1080p");
+  return new File([blob],(file.name.replace(/\.[^.]+$/,"")||"RIVO-video")+"-1080p.webm",{type:"video/webm",lastModified:Date.now()});
+ }finally{video.pause();video.removeAttribute("src");URL.revokeObjectURL(url)}
+}
+window.uploadVideo=async function(file){
+ if(!file)return;if(!activeFriendId){toast("اختر صديقاً أولاً");return}
+ if(!file.type.startsWith("video/")){toast("اختر ملف فيديو فقط");return}
+ if(file.size>5*1024*1024*1024){toast("الحد الأقصى للفيديو 5 جيجابايت");return}
+ var picker=document.getElementById("videoPicker");picker.value="";
+ var box=document.getElementById("threadContent"),progress=document.createElement("div");
+ progress.className="video-item";progress.innerHTML='<b>جارٍ تجهيز الفيديو إلى 1080p عند الحاجة...</b><div class="upload-progress"><span></span></div>';box.appendChild(progress);
+ var bar=progress.querySelector("span"),label=progress.querySelector("b");
+ try{
+  var source=await rivoPrepare1080(file);
+  if(source.size>5*1024*1024*1024)throw new Error("حجم الفيديو بعد التجهيز يتجاوز 5 جيجابايت");
+  var start=await api("/api/videos/upload","POST",{action:"create",recipientId:activeFriendId,fileName:source.name,mimeType:source.type||"video/mp4",fileSize:source.size});
+  var partSize=start.partSize||8388608,parts=[],count=Math.ceil(source.size/partSize),uploaded=0,next=0,failed=null;
+  async function worker(){while(true){var i=next++;if(i>=count||failed)return;try{
+   var chunk=source.slice(i*partSize,Math.min(source.size,(i+1)*partSize));
+   var res=await fetch("/api/videos/upload?id="+encodeURIComponent(start.id)+"&uploadId="+encodeURIComponent(start.uploadId)+"&partNumber="+(i+1),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/octet-stream"},body:chunk});
+   var p=await res.json();if(!res.ok)throw new Error(p.error||"تعذر رفع جزء من الفيديو");
+   parts[i]={partNumber:p.partNumber,etag:p.etag};uploaded+=chunk.size;
+   var pct=Math.min(99,Math.round(uploaded/source.size*100));bar.style.width=pct+"%";label.textContent="رفع الفيديو "+pct+"%";
+  }catch(e){failed=e}}}
+  await Promise.all([worker(),worker(),worker()]);if(failed)throw failed;
+  await api("/api/videos/upload","POST",{action:"complete",id:start.id,parts:parts});
+  progress.remove();toast(source!==file?"تم إرسال الفيديو بعد تجهيزه بحد أقصى 1080p":"تم إرسال الفيديو");rivoLoadVideos();
+ }catch(e){progress.remove();toast(e.message)}
+};
 async function rivoDeleteAfterDownload(id){await api("/api/video-complete","POST",{id:id});toast("اكتمل التنزيل وحُذفت النسخة السحابية");rivoLoadVideos()}
 async function rivoDownload(id){try{var res=await fetch("/api/video-download?id="+encodeURIComponent(id),{credentials:"same-origin"});if(!res.ok){var err=await res.json().catch(function(){return {}});throw new Error(err.error||"تعذر تنزيل الفيديو")}if(window.showSaveFilePicker){var handle=await window.showSaveFilePicker({suggestedName:"RIVO-video"}),writer=await handle.createWritable();await res.body.pipeTo(writer);await rivoDeleteAfterDownload(id);return}var length=Number(res.headers.get("content-length")||0);if(length>300*1024*1024){if(res.body)await res.body.cancel();var a=document.createElement("a");a.href="/api/video-download?id="+encodeURIComponent(id);a.click();var box=document.getElementById("threadContent"),confirm=document.createElement("div");confirm.className="video-item";confirm.innerHTML='<b>بعد اكتمال حفظ الملف على جهازك</b><button class="video-download" data-confirm-download="'+rivoEsc(id)+'">تم التنزيل، احذف النسخة السحابية</button>';box.appendChild(confirm);toast("بعد انتهاء التنزيل اضغط تأكيد الحذف");return}var small=await res.blob(),u=URL.createObjectURL(small),link=document.createElement("a");link.href=u;link.download="RIVO-video";link.click();setTimeout(function(){URL.revokeObjectURL(u)},60000);await rivoDeleteAfterDownload(id)}catch(e){toast(e.message)}}
 document.addEventListener("click",function(e){var t=e.target.closest("[data-add-id],[data-accept-id],[data-open-id],[data-download-id],[data-confirm-download],[data-copy-handle]");if(!t)return;if(t.dataset.copyHandle){var copied="@"+t.dataset.copyHandle;if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(copied).then(function(){toast("تم نسخ "+copied)}).catch(function(){toast(copied)});else toast(copied)}else if(t.dataset.addId)rivoRequest(t.dataset.addId);else if(t.dataset.acceptId)rivoRespond(t.dataset.acceptId);else if(t.dataset.openId){var h=t.dataset.handle||"friend";window.openThread("@"+h,h.slice(0,1),0,t.dataset.openId)}else if(t.dataset.downloadId)rivoDownload(t.dataset.downloadId);else if(t.dataset.confirmDownload)rivoDeleteAfterDownload(t.dataset.confirmDownload)});

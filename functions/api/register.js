@@ -21,8 +21,11 @@ export async function onRequestPost({ request, env }) {
     const session = await startSession(id, env);
     return json({ ok: true, id, handle, profileCipher, profileIv, profileSalt, avatarKey: null }, 201, { "set-cookie": cookie(session) });
   } catch (error) {
-    const message = String(error?.message || "");
+    const message = String(error?.message || "Unknown registration error");
+    console.error("RIVO_REGISTER_ERROR", message);
     if (message.includes("UNIQUE")) return json({ error: "البريد الإلكتروني أو المعرّف مستخدم بالفعل." }, 409);
-    return json({ error: "تعذّر إنشاء الحساب حالياً." }, 500);
+    if (message.includes("no such table")) return json({ error: "قاعدة بيانات الحسابات غير مهيأة بشكل صحيح." }, 500);
+    if (message.includes("D1") || message.includes("database") || message.includes("SQLITE")) return json({ error: "تعذّر حفظ الحساب في قاعدة البيانات. رمز التشخيص: DB_WRITE_FAILED" }, 500);
+    return json({ error: "تعذّر إنشاء الحساب. رمز التشخيص: " + message.slice(0, 120) }, 500);
   }
 }

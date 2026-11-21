@@ -111,7 +111,7 @@ async function rivoDecryptAvatar(ownerId,element){
   element.replaceChildren(img);
  }catch(e){/* الصورة القديمة تحتاج إعادة رفع، أو لا يملك الحساب مشاركة صالحة */}
 }
-async function loadAvatar(){if(!currentUserId)return;const el=document.getElementById('profileAvatar');if(el)await rivoDecryptAvatar(currentUserId,el)}
+async function loadAvatar(){if(!currentUserId)return;const el=document.getElementById('profileAvatar');if(el){try{await rivoDecryptAvatar(currentUserId,el)}catch(e){toast('أعد رفع صورتك الشخصية لتفعيل عرضها للأصدقاء')}}}
 window.rivoLoadFriendAvatars=function(){document.querySelectorAll('[data-avatar-user]').forEach(function(el){if(!el.dataset.avatarLoaded){el.dataset.avatarLoaded='1';rivoDecryptAvatar(el.dataset.avatarUser,el)}})};
 async function rivoShareAvatarWithNewFriends(){
  const imageKey=await rivoDbGet('avatar-aes-key');if(!imageKey)return;

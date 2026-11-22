@@ -29,6 +29,8 @@ export async function onRequestPost({ request, env }) {
       const id=String(body.id||"");
       const row=await env.DB.prepare("SELECT * FROM video_uploads WHERE id=? AND sender_id=?").bind(id,me.id).first();
       if (!row) return json({error:"جلسة رفع الفيديو غير موجودة."},404);
+      const stillFriends=await env.DB.prepare("SELECT id FROM friend_requests WHERE status='accepted' AND ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))").bind(me.id,row.recipient_id,row.recipient_id,me.id).first();
+      if(!stillFriends){await env.MEDIA.resumeMultipartUpload(row.object_key,row.upload_id).abort();await env.DB.prepare("DELETE FROM video_uploads WHERE id=?").bind(id).run();return json({error:"لم يعد المستلم ضمن أصدقائك."},403)}
       const parts=Array.isArray(body.parts)?body.parts:[];
       const expectedParts=Math.ceil(row.file_size/(8*1024*1024));
       const partNumbers=new Set(parts.map(p=>Number(p.partNumber)));

@@ -9,7 +9,7 @@ export async function onRequestGet({request,env}){
  try{
   const row=await env.DB.prepare("SELECT a.user_id,u.handle FROM admin_accounts a JOIN users u ON u.id=a.user_id WHERE a.singleton=1").first();
   const isAdmin=!!row&&row.user_id===me.id;
-  if(!isAdmin)return json({ok:true,isAdmin:false});
+  if(!isAdmin)return json({ok:true,isAdmin:false,adminExists:!!row});
   const [total,visitors,series,usersSeries,revenue,paidSubs,announcements]=await Promise.all([
    env.DB.prepare("SELECT COUNT(*) AS n FROM users").first(),
    env.DB.prepare("SELECT COUNT(DISTINCT visitor_hash) AS n FROM visitor_daily WHERE visit_day>=date('now','-6 days')").first(),

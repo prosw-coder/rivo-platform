@@ -1,4 +1,5 @@
 import { json, currentUser } from "../../_lib/auth.js";
+import { getSubscriptionAccess } from "../../_lib/subscriptions.js";
 const MAX_SIZE = 5 * 1024 * 1024 * 1024;
 export async function onRequestPost({ request, env }) {
   const me = await currentUser(request, env);
@@ -11,10 +12,13 @@ export async function onRequestPost({ request, env }) {
       const mime = String(body.mimeType || "");
       const width = Number(body.width);
       const height = Number(body.height);
+      const access = await getSubscriptionAccess(env,me.id);
       const longSide = Math.max(width, height);
       const shortSide = Math.min(width, height);
+      const maxLong = access.plan === "free" ? 1280 : 1920;
+      const maxShort = access.plan === "free" ? 720 : 1080;
       if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) return json({ error:"تعذر تحديد دقة الفيديو." },400);
-      if (longSide > 1920 || shortSide > 1080) return json({ error:"دقة الفيديو أعلى من الحد المسموح (1080p)." },413);
+      if (longSide > maxLong || shortSide > maxShort) return json({ error:access.plan === "free" ? "الباقة المجانية تسمح بدقة تصل إلى 720p فقط. اشترك في PLUS لإرسال 1080p." : "دقة الفيديو أعلى من الحد المسموح (1080p)." },413);
       const fileName = String(body.fileName || "video").replace(/[\\r\\n"]/g,"_").slice(0,180);
       if (!Number.isSafeInteger(size) || size < 1 || size > MAX_SIZE) return json({ error:"حجم الفيديو يجب ألا يتجاوز 5 جيجابايت." },413);
       if (!["video/mp4","video/webm","video/quicktime","video/ogg","video/3gpp","video/x-matroska"].includes(mime.toLowerCase())) return json({ error:"صيغة الفيديو غير مدعومة. استخدم MP4 أو WebM." },400);
@@ -23,7 +27,7 @@ export async function onRequestPost({ request, env }) {
       const id=crypto.randomUUID(), key="videos/"+me.id+"/"+id;
       const upload=await env.MEDIA.createMultipartUpload(key,{httpMetadata:{contentType:"application/octet-stream",cacheControl:"private, no-store"},customMetadata:{sender:me.id,recipient:recipientId}});
       await env.DB.prepare("INSERT INTO video_uploads (id,sender_id,recipient_id,object_key,upload_id,file_name,mime_type,file_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,me.id,recipientId,key,upload.uploadId,fileName,mime,size,new Date().toISOString()).run();
-      return json({ id, key, uploadId:upload.uploadId, partSize:8*1024*1024 });
+      return json({ id, key, uploadId:upload.uploadId, partSize:8*1024*1024, plan:access.plan, maxResolution:access.plan === "free" ? "720p" : "1080p" });
     }
     if (body.action === "complete") {
       const id=String(body.id||"");

@@ -22,7 +22,11 @@ export async function onRequestPost({ request, env }) {
     }
     const session = await startSession(user.id, env);
     return json({ ok: true, id: user.id, handle: user.handle, profileCipher: user.profile_cipher, profileIv: user.profile_iv, profileSalt: user.profile_salt, avatarKey: user.avatar_key }, 200, { "set-cookie": cookie(session) });
-  } catch {
-    return json({ error: "تعذّر تسجيل الدخول حالياً." }, 500);
+  } catch (error) {
+    const message = String(error?.message || "Unknown login error");
+    console.error("RIVO_LOGIN_ERROR", message);
+    if (message.includes("no such table") || message.includes("no such column")) return json({ error: "قاعدة بيانات تسجيل الدخول غير مهيأة بشكل صحيح. رمز التشخيص: AUTH_SCHEMA" }, 500);
+    if (message.includes("D1") || message.includes("database") || message.includes("SQLITE")) return json({ error: "تعذّر الاتصال بقاعدة بيانات تسجيل الدخول. رمز التشخيص: AUTH_DB" }, 500);
+    return json({ error: "تعذّر تسجيل الدخول حالياً. رمز التشخيص: AUTH_INTERNAL" }, 500);
   }
 }

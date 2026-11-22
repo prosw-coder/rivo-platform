@@ -1,4 +1,4 @@
-import { json, sha256, passwordHash, cookie, startSession, consumeRateLimit } from "../_lib/auth.js";
+import { json, sha256, passwordHash, newToken, cookie, startSession, consumeRateLimit } from "../_lib/auth.js";
 export async function onRequestPost({ request, env }) {
   let stage = "request";
   try {
@@ -22,9 +22,28 @@ export async function onRequestPost({ request, env }) {
     const digest = await passwordHash(password, user.password_salt, iterations);
     if (digest !== user.password_hash) return json({ error: "بيانات الدخول غير صحيحة." }, 401);
     if (iterations < 600000) {
-      stage = "password_upgrade";
-      const upgraded = await passwordHash(password, user.password_salt, 600000);
-      await env.DB.prepare("UPDATE users SET password_hash=?,password_iterations=600000 WHERE id=?").bind(upgraded,user.id).run();
+      // Upgrade legacy hashes after successful verification. A migration failure must
+      // not lock a valid user out; the existing hash remains usable and can be upgraded
+      // on a later login.
+      try {
+        stage = "password_upgrade_hash";
+        const upgradedSalt = newToken(16);
+        const upgradedHash = await passwordHash(password, upgradedSalt, 600000);
+        stage = "password_upgrade_db";
+        const result = await env.DB.prepare(
+          "UPDATE users SET password_salt=?,password_hash=?,password_iterations=600000 WHERE id=?"
+        ).bind(upgradedSalt, upgradedHash, user.id).run();
+        if (result?.meta?.changes === 0) {
+          console.error("RIVO_PASSWORD_UPGRADE_NOT_APPLIED", { userId: user.id });
+        }
+      } catch (upgradeError) {
+        console.error("RIVO_PASSWORD_UPGRADE_ERROR", {
+          stage,
+          name: String(upgradeError?.name || "Error"),
+          message: String(upgradeError?.message || "Unknown upgrade error")
+        });
+        // Continue to create a session: password verification already succeeded.
+      }
     }
     stage = "session_create";
     const session = await startSession(user.id, env);

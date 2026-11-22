@@ -1,4 +1,4 @@
-import { json, currentUser } from "../_lib/auth.js";
+import { json, currentUser, sha256, consumeRateLimit } from "../_lib/auth.js";
 async function adminUser(request,env){
  const me=await currentUser(request,env);if(!me)return null;
  const row=await env.DB.prepare("SELECT a.user_id,u.handle FROM admin_accounts a JOIN users u ON u.id=a.user_id WHERE a.singleton=1 AND a.user_id=?").bind(me.id).first();
@@ -27,6 +27,9 @@ export async function onRequestPost({request,env}){
  try{
   const body=await request.json(),action=String(body.action||"");
   if(action==="setup"){
+   const ip=request.headers.get("CF-Connecting-IP")||"unknown";
+   const setupLimit=await consumeRateLimit(env,await sha256("admin-setup:"+ip),5,60*60*1000,60*60*1000);
+   if(!setupLimit.allowed)return json({error:"تم تجاوز محاولات تهيئة الإدارة. حاول بعد ساعة."},429,{"retry-after":String(setupLimit.retryAfter)});
    const secret=String(body.setupSecret||"");
    if(!env.ADMIN_SETUP_SECRET||secret.length<20||secret!==env.ADMIN_SETUP_SECRET)return json({error:"رمز التهيئة غير صحيح أو غير مضبوط في Cloudflare."},403);
    const existing=await env.DB.prepare("SELECT user_id FROM admin_accounts WHERE singleton=1").first();

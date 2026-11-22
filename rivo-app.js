@@ -150,3 +150,77 @@ window.rivoRemoveTeamMember=async function(userId){
  if(!confirm("هل تريد إزالة هذا العضو وإنهاء هدية PLUS؟"))return;
  try{await api("/api/subscription","POST",{action:"remove",userId:userId});toast("تمت إزالة العضو");rivoLoadSubscription()}catch(e){toast(e.message)}
 };
+
+var rivoAdminReady=false,rivoAnnouncementTimer=null,rivoAdminState=null;
+window.rivoAdminInit=async function(){
+ try{
+  var d=await api("/api/admin");
+  rivoAdminState=d;
+  var setup=document.getElementById("adminSetupSettings"),info=document.getElementById("adminAccessInfo");
+  if(setup)setup.classList.toggle("hidden",!!d.adminExists);
+  if(info)info.classList.toggle("hidden",!d.adminExists||!!d.isAdmin);
+  if(d.isAdmin){
+   rivoAdminReady=true;
+   var nav=document.querySelector(".nav-inner");
+   if(nav&&!document.querySelector('.nav-item[data-page="admin"]')){
+    var btn=document.createElement("button");btn.className="nav-item admin-nav";btn.dataset.page="admin";btn.innerHTML='<strong><i data-lucide="shield-check"></i></strong>الإدارة';btn.onclick=function(){navigate("admin")};nav.appendChild(btn);
+   }
+   var name=document.getElementById("profileName");if(name&&!name.querySelector(".admin-gold")){var badge=document.createElement("span");badge.className="admin-gold";badge.textContent=" ✦ الإدارة";name.appendChild(badge)}
+  }else{
+   rivoAdminReady=false;var existing=document.querySelector('.nav-item[data-page="admin"]');if(existing)existing.remove();
+  }
+  renderIcons();
+  if(!rivoAnnouncementTimer){window.rivoLoadAnnouncements();rivoAnnouncementTimer=setInterval(window.rivoLoadAnnouncements,45000)}
+ }catch(e){console.warn("RIVO_ADMIN_INIT",e)}
+};
+window.rivoAdminSetup=async function(){
+ var field=document.getElementById("adminSetupSecretSettings")||document.getElementById("adminSetupSecret"),secret=field?field.value.trim():"";
+ if(secret.length<20){toast("رمز التهيئة يجب أن يكون 20 حرفاً على الأقل");return}
+ try{await api("/api/admin","POST",{action:"setup",setupSecret:secret});if(field)field.value="";toast("تم إنشاء حساب الإدارة الرئيسي");await window.rivoAdminInit()}catch(e){toast(e.message)}
+};
+window.rivoAdminLoadDashboard=async function(){
+ if(!rivoAdminReady){toast("هذه الصفحة مخصصة لحساب الإدارة الرئيسي");return}
+ try{
+  var d=await api("/api/admin");if(!d.isAdmin){rivoAdminReady=false;toast("لا تملك صلاحية الإدارة");return}
+  var st=d.stats||{};
+  document.getElementById("adminUsersTotal").textContent=Number(st.users||0).toLocaleString("ar-JO");
+  document.getElementById("adminVisitorsTotal").textContent=Number(st.visitors7d||0).toLocaleString("ar-JO");
+  document.getElementById("adminRevenueTotal").textContent=Number(st.revenueJod||0).toFixed(2)+" د.أ";
+  document.getElementById("adminPaymentsCount").textContent=Number(st.paidPayments||0)+" عملية مدفوعة";
+  document.getElementById("adminActiveSubs").textContent=Number(st.activeSubscriptions||0).toLocaleString("ar-JO");
+  document.getElementById("adminDashboardContent").classList.remove("hidden");
+  var box=document.getElementById("adminChart"),vis=d.visitorsSeries||[],users=d.usersSeries||[],days=[];
+  for(var i=6;i>=0;i--){var dt=new Date();dt.setDate(dt.getDate()-i);days.push(dt.toISOString().slice(0,10))}
+  var max=1;days.forEach(function(day){max=Math.max(max,Number((vis.find(x=>x.day===day)||{}).visitors||0),Number((users.find(x=>x.day===day)||{}).users||0))});
+  box.innerHTML=days.map(function(day){var v=Number((vis.find(x=>x.day===day)||{}).visitors||0),u=Number((users.find(x=>x.day===day)||{}).users||0),vh=Math.max(2,v/max*132),uh=Math.max(2,u/max*132);return '<div class="admin-chart-day"><div class="admin-chart-bars"><div class="admin-chart-bar visitors" style="height:'+vh+'px" title="الزوار: '+v+'"></div><div class="admin-chart-bar users" style="height:'+uh+'px" title="المستخدمون الجدد: '+u+'"></div></div><small>'+day.slice(5)+'</small></div>'}).join("");
+  var list=document.getElementById("adminAnnouncementsList"),items=d.announcements||[];
+  list.innerHTML=items.length?items.map(function(x){return '<div class="admin-announcement-row">'+rivoEsc(x.message)+'<small><span class="admin-gold">RIVO OFFICIAL</span> · '+new Date(x.created_at).toLocaleString("ar-JO")+'</small></div>'}).join(""):'<p class="muted-note">لا توجد إعلانات بعد.</p>';
+ }catch(e){toast(e.message)}
+};
+window.rivoAdminSendAnnouncement=async function(){
+ if(!rivoAdminReady){toast("لا تملك صلاحية الإدارة");return}
+ var field=document.getElementById("adminAnnouncementText"),message=field?field.value.trim():"";
+ if(!message||message.length>1000){toast("اكتب إعلاناً من 1 إلى 1000 حرف");return}
+ if(!confirm("إرسال هذا الإعلان إلى جميع مستخدمي RIVO؟"))return;
+ try{await api("/api/admin","POST",{action:"announce",message});field.value="";toast("تم نشر الإعلان لجميع المستخدمين");await window.rivoAdminLoadDashboard();await window.rivoLoadAnnouncements()}catch(e){toast(e.message)}
+};
+window.rivoLoadAnnouncements=async function(){
+ try{
+  var d=await api("/api/announcements"),items=d.announcements||[],latest=items[0],bar=document.getElementById("globalAnnouncement");
+  if(!latest||!bar)return;
+  var old=bar.dataset.announcementId||"";
+  if(old===latest.id)return;
+  bar.dataset.announcementId=latest.id;
+  document.getElementById("globalAnnouncementText").textContent=latest.message;
+  bar.classList.remove("hidden");
+ }catch(e){}
+};
+(function rivoTrackVisit(){
+ try{
+  var key="rivo_visitor_key",visitor=localStorage.getItem(key);
+  if(!visitor){visitor=(crypto.randomUUID?crypto.randomUUID().replaceAll("-",""):(Date.now().toString(36)+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)));localStorage.setItem(key,visitor)}
+  var day=new Date().toISOString().slice(0,10),sentKey="rivo_visitor_day";
+  if(localStorage.getItem(sentKey)!==day){fetch("/api/analytics/visit",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify({visitor:visitor})}).then(function(r){if(r.ok)localStorage.setItem(sentKey,day)}).catch(function(){})}
+ }catch(e){}
+})();
+if(document.getElementById("app")&&!document.getElementById("app").classList.contains("hidden"))window.rivoAdminInit();

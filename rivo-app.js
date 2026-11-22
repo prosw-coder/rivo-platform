@@ -12,7 +12,7 @@ window.copyMyHandle=function(){var v="@"+userHandle;if(navigator.clipboard&&navi
 window.loadFriends=rivoLoadFriends;
 window.searchPeople=function(q){rivoSearch(q,"peopleResults")};
 window.searchFriends=function(q){if(!q.trim()){rivoLoadFriends();return}rivoSearch(q,"friendList")};
-window.openThread=function(name,letter,index,id){activeFriend=name;activeFriendId=id||"";document.getElementById("welcomePane").classList.add("hidden");["conversationsPage","friendsPage","profilePage","settingsPage"].forEach(function(x){document.getElementById(x).classList.add("hidden")});document.getElementById("threadPane").classList.remove("hidden");document.getElementById("threadName").textContent=name;var threadAvatar=document.getElementById("threadAvatar");threadAvatar.textContent=letter;if(activeFriendId){threadAvatar.dataset.avatarUser=activeFriendId;threadAvatar.dataset.avatarLoaded="";if(window.rivoLoadFriendAvatars)window.rivoLoadFriendAvatars()}document.getElementById("composeName").textContent=name;document.getElementById("headerTitle").textContent=name;document.querySelectorAll(".nav-item").forEach(function(x){x.classList.toggle("active",x.dataset.page==="conversations")});rivoLoadVideos();if(window.lucide)lucide.createIcons()};
+window.openThread=function(name,letter,index,id){activeFriend=name;activeFriendId=id||"";document.getElementById("welcomePane").classList.add("hidden");["conversationsPage","friendsPage","profilePage","settingsPage","subscriptionPage"].forEach(function(x){document.getElementById(x).classList.add("hidden")});document.getElementById("threadPane").classList.remove("hidden");document.getElementById("threadName").textContent=name;var threadAvatar=document.getElementById("threadAvatar");threadAvatar.textContent=letter;if(activeFriendId){threadAvatar.dataset.avatarUser=activeFriendId;threadAvatar.dataset.avatarLoaded="";if(window.rivoLoadFriendAvatars)window.rivoLoadFriendAvatars()}document.getElementById("composeName").textContent=name;document.getElementById("headerTitle").textContent=name;document.querySelectorAll(".nav-item").forEach(function(x){x.classList.toggle("active",x.dataset.page==="conversations")});rivoLoadVideos();if(window.lucide)lucide.createIcons()};
 window.showApp=(function(original){return function(){original();rivoLoadFriends();rivoStartNotifications()}})(window.showApp);
 window.navigate=(function(original){return function(page,el){original(page,el);if(page==="friends"||page==="conversations")rivoLoadFriends();if(page==="settings")rivoLoadPrivacySettings()}})(window.navigate);
 async function rivoLoadVideos(){var box=document.getElementById("threadContent");if(!activeFriendId){box.innerHTML='<p class="muted-note">اختر صديقاً لعرض الفيديوهات.</p>';return}box.innerHTML='<p class="muted-note">جارٍ تحميل الفيديوهات...</p>';try{var d=await api("/api/video-list?friendId="+encodeURIComponent(activeFriendId)),videos=d.videos||[];if(!videos.length){box.innerHTML='<div class="empty-state"><div class="empty-inner"><div class="empty-symbol"><i data-lucide="video"></i></div><h2>لا توجد فيديوهات بعد</h2><p>أرسل فيديو لصديقك أو انتظر فيديوهاته.</p></div></div>';if(window.lucide)lucide.createIcons();return}box.innerHTML=videos.map(function(v){var sent=v.sender_id!==activeFriendId;return '<article class="video-chat-card '+(sent?'sent':'received')+'"><video controls playsinline preload="metadata" src="/api/video-stream?id='+encodeURIComponent(v.id)+'"></video><div class="video-chat-meta"><span class="video-chat-name">'+(sent?'أرسلته · ':'استلمته · ')+rivoEsc(v.file_name)+'</span><time>'+(sent?(v.recipient_read_at?'<span class="read-receipt">✓✓ تمت المشاهدة</span>':'<span class="read-receipt">✓ تم الإرسال</span>'):'')+' '+new Date(v.created_at).toLocaleString("ar")+'</time></div></article>'}).join("");if(window.lucide)lucide.createIcons()}catch(e){box.innerHTML='<p class="muted-note">'+rivoEsc(e.message)+'</p>'}}
@@ -93,3 +93,35 @@ async function rivoUnblockUser(id){
  catch(e){toast(e.message)}
 }
 document.addEventListener("click",function(e){var b=e.target.closest("[data-unblock-id]");if(b){e.preventDefault();rivoUnblockUser(b.dataset.unblockId)}});
+\n
+window.rivoLoadSubscription=async function(){
+ var current=document.getElementById("subscriptionCurrent"),members=document.getElementById("teamMembersList"),incoming=document.getElementById("teamIncomingInvites");
+ try{
+  var d=await api("/api/subscription"),access=d.access||{plan:"free"},own=d.subscription||{plan:"free"},team=d.team||{},time=Date.now(),ownActive=own.plan==="team"&&own.status==="active"&&Number(own.expires_at)>time;
+  var names={free:"FREE",plus:"PLUS",team:"TEAM"},expiry=access.expiresAt?new Date(access.expiresAt).toLocaleDateString("ar-JO"):"—";
+  current.innerHTML='<b>الباقة الفعالة: '+rivoEsc(names[access.plan]||"FREE")+'</b><br>جودة الرفع القصوى: '+(access.plan==="free"?"720p":"1080p")+(access.source==="team_gift"?' <br>هدية من فريق @'+rivoEsc(access.giftedBy||""):'')+'<br>تنتهي الصلاحية: '+expiry;
+  var memberRows=team.members||[];
+  if(members){
+   if(ownActive){
+    members.innerHTML='<p class="muted-note">الأعضاء: '+memberRows.length+' من 3</p>'+(memberRows.length?memberRows.map(function(m){return '<div class="team-member-row"><div class="detail"><b>@'+rivoEsc(m.handle)+'</b><small>'+(m.status==="pending"?"بانتظار قبول الدعوة":"عضو نشط · PLUS هدية")+'</small></div><button class="secondary-btn" onclick="rivoRemoveTeamMember(\''+rivoEsc(m.member_id)+'\')">إزالة</button></div>'}).join(""):'<p class="muted-note">لم تضف أعضاء بعد.</p>');
+   }else if(team.membership){
+    members.innerHTML='<p class="muted-note">أنت عضو في فريق @'+rivoEsc(team.membership.handle)+'، وتحصل على PLUS كهدية حتى '+new Date(team.membership.expires_at).toLocaleDateString("ar-JO")+'.</p>';
+   }else{
+    members.innerHTML='<p class="muted-note">إدارة الفريق متاحة بعد تفعيل اشتراك TEAM.</p>';
+   }
+  }
+  if(incoming)incoming.innerHTML=(d.incoming||[]).length?d.incoming.map(function(inv){return '<div class="team-member-row"><div class="detail"><b>دعوة من @'+rivoEsc(inv.handle)+'</b><small>هدية PLUS حتى '+new Date(inv.expires_at).toLocaleDateString("ar-JO")+'</small></div><button class="friend-action" onclick="rivoRespondTeamInvite(\''+rivoEsc(inv.id)+'\',\'accept\')">قبول</button><button class="secondary-btn" onclick="rivoRespondTeamInvite(\''+rivoEsc(inv.id)+'\',\'decline\')">رفض</button></div>'}).join(""):'<p class="muted-note">لا توجد دعوات TEAM واردة.</p>';
+ }catch(e){if(current)current.textContent=e.message;if(members)members.innerHTML='<p class="muted-note">تعذر تحميل الفريق.</p>'}
+};
+window.rivoInviteTeamMember=async function(){
+ var input=document.getElementById("teamInviteId"),userId=(input&&input.value||"").trim();
+ if(!userId){toast("أدخل RIVO ID للعضو");return}
+ try{var d=await api("/api/subscription","POST",{action:"invite",userId:userId});if(input)input.value="";toast(d.message||"تم إرسال الدعوة");rivoLoadSubscription()}catch(e){toast(e.message)}
+};
+window.rivoRespondTeamInvite=async function(inviteId,action){
+ try{await api("/api/subscription","POST",{action:action,inviteId:inviteId});toast(action==="accept"?"تم قبول هدية PLUS":"تم رفض الدعوة");rivoLoadSubscription()}catch(e){toast(e.message)}
+};
+window.rivoRemoveTeamMember=async function(userId){
+ if(!confirm("هل تريد إزالة هذا العضو وإنهاء هدية PLUS؟"))return;
+ try{await api("/api/subscription","POST",{action:"remove",userId:userId});toast("تمت إزالة العضو");rivoLoadSubscription()}catch(e){toast(e.message)}
+};

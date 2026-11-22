@@ -93,10 +93,36 @@ async function rivoUnblockUser(id){
  catch(e){toast(e.message)}
 }
 document.addEventListener("click",function(e){var b=e.target.closest("[data-unblock-id]");if(b){e.preventDefault();rivoUnblockUser(b.dataset.unblockId)}});
+window.rivoApplyPremiumTheme=function(enabled){
+ try{if(enabled)document.body.setAttribute("data-rivo-theme","premium");else document.body.removeAttribute("data-rivo-theme")}catch(e){}
+};
+window.rivoTogglePremiumTheme=function(){
+ var access=window.rivoSubscriptionAccess||{plan:"free"};
+ if(access.plan!=="plus"&&access.plan!=="team"){toast("ميزة الألوان متاحة لمشتركي PLUS وTEAM فقط");navigate("subscription");return}
+ var enabled=document.body.getAttribute("data-rivo-theme")!=="premium",key="rivo-premium-theme:"+String(currentUserId||userHandle||"account");
+ try{if(enabled)localStorage.setItem(key,"premium");else localStorage.removeItem(key)}catch(e){}
+ window.rivoApplyPremiumTheme(enabled);window.rivoRenderPremiumThemeSettings();
+ toast(enabled?"تم تفعيل المظهر الأسود والزهري":"تمت إعادة ألوان RIVO الافتراضية");
+};
+window.rivoRenderPremiumThemeSettings=function(){
+ var box=document.getElementById("premiumThemeControls");if(!box)return;
+ var access=window.rivoSubscriptionAccess||{plan:"free"},paid=access.plan==="plus"||access.plan==="team";
+ if(!paid){box.innerHTML='<p class="muted-note">غيّر ألوان التطبيق إلى الأسود والزهري مع اشتراك PLUS أو TEAM. <span class="premium-theme-swatch"></span></p><button class="premium-theme-action" onclick="navigate(\'subscription\')">اشترك لفتح الميزة</button>';return}
+ var enabled=document.body.getAttribute("data-rivo-theme")==="premium";
+ box.innerHTML='<div class="setting"><div>المظهر الأسود والزهري <small>خلفيات سوداء ولمسات زهرية في كامل التطبيق</small></div><span>'+(enabled?'مفعّل':'غير مفعّل')+'</span></div><button class="premium-theme-action '+(enabled?'off':'')+'" onclick="rivoTogglePremiumTheme()">'+(enabled?'إيقاف المظهر':'تفعيل الأسود والزهري')+'</button>';
+};
+window.rivoLoadPremiumTheme=function(access){
+ window.rivoSubscriptionAccess=access||{plan:"free"};
+ var paid=window.rivoSubscriptionAccess.plan==="plus"||window.rivoSubscriptionAccess.plan==="team";
+ var key="rivo-premium-theme:"+String(currentUserId||userHandle||"account"),saved="";
+ try{saved=localStorage.getItem(key)||""}catch(e){}
+ window.rivoApplyPremiumTheme(!!(paid&&saved==="premium"));
+ window.rivoRenderPremiumThemeSettings();
+};
 window.rivoLoadSubscription=async function(){
  var current=document.getElementById("subscriptionCurrent"),members=document.getElementById("teamMembersList"),incoming=document.getElementById("teamIncomingInvites");
  try{
-  var d=await api("/api/subscription"),access=d.access||{plan:"free"},own=d.subscription||{plan:"free"},team=d.team||{},time=Date.now(),ownActive=own.plan==="team"&&own.status==="active"&&Number(own.expires_at)>time;
+  var d=await api("/api/subscription"),access=d.access||{plan:"free"},own=d.subscription||{plan:"free"},team=d.team||{},time=Date.now(),ownActive=own.plan==="team"&&own.status==="active"&&Number(own.expires_at)>time;window.rivoLoadPremiumTheme(access);
   window.rivoMaxLong=access.plan==="free"?1280:1920;window.rivoMaxShort=access.plan==="free"?720:1080;var names={free:"FREE",plus:"PLUS",team:"TEAM"},expiry=access.expiresAt?new Date(access.expiresAt).toLocaleDateString("ar-JO"):"—";
   current.innerHTML='<b>الباقة الفعالة: '+rivoEsc(names[access.plan]||"FREE")+'</b><br>جودة الرفع القصوى: '+(access.plan==="free"?"720p":"1080p")+(access.source==="team_gift"?' <br>هدية من فريق @'+rivoEsc(access.giftedBy||""):'')+'<br>تنتهي الصلاحية: '+expiry;
   var memberRows=team.members||[];

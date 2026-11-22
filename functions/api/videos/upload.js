@@ -15,8 +15,8 @@ export async function onRequestPost({ request, env }) {
       const access = await getSubscriptionAccess(env,me.id);
       const longSide = Math.max(width, height);
       const shortSide = Math.min(width, height);
-      const maxLong = access.plan === "free" ? 1280 : 1920;
-      const maxShort = access.plan === "free" ? 720 : 1080;
+      let maxLong = access.plan === "free" ? 1280 : 1920;
+      let maxShort = access.plan === "free" ? 720 : 1080;
       if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) return json({ error:"تعذر تحديد دقة الفيديو." },400);
       if (longSide > maxLong || shortSide > maxShort) return json({ error:access.plan === "free" ? "الباقة المجانية تسمح بدقة تصل إلى 720p فقط. اشترك في PLUS لإرسال 1080p." : "دقة الفيديو أعلى من الحد المسموح (1080p)." },413);
       const fileName = String(body.fileName || "video").replace(/[\\r\\n"]/g,"_").slice(0,180);
@@ -24,6 +24,8 @@ export async function onRequestPost({ request, env }) {
       if (!["video/mp4","video/webm","video/quicktime","video/ogg","video/3gpp","video/x-matroska"].includes(mime.toLowerCase())) return json({ error:"صيغة الفيديو غير مدعومة. استخدم MP4 أو WebM." },400);
       const friend = await env.DB.prepare("SELECT id FROM friend_requests WHERE status='accepted' AND ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))").bind(me.id,recipientId,recipientId,me.id).first();
       if (!friend) return json({ error:"يمكنك إرسال الفيديوهات إلى أصدقائك المقبولين فقط." },403);
+      const recipientAccess = await getSubscriptionAccess(env,recipientId);
+      if(recipientAccess.plan==="free"){maxLong=Math.min(maxLong,1280);maxShort=Math.min(maxShort,720)}
       const id=crypto.randomUUID(), key="videos/"+me.id+"/"+id;
       const upload=await env.MEDIA.createMultipartUpload(key,{httpMetadata:{contentType:"application/octet-stream",cacheControl:"private, no-store"},customMetadata:{sender:me.id,recipient:recipientId}});
       await env.DB.prepare("INSERT INTO video_uploads (id,sender_id,recipient_id,object_key,upload_id,file_name,mime_type,file_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,me.id,recipientId,key,upload.uploadId,fileName,mime,size,new Date().toISOString()).run();

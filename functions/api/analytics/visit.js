@@ -1,4 +1,4 @@
-import { json, sha256 } from "../_lib/auth.js";
+import { json, sha256 } from "../../_lib/auth.js";
 export async function onRequestPost({request,env}){
  try{
   const body=await request.json(),visitor=String(body.visitor||"");

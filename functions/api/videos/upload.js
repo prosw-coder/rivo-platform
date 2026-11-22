@@ -26,6 +26,7 @@ export async function onRequestPost({ request, env }) {
       if (!friend) return json({ error:"يمكنك إرسال الفيديوهات إلى أصدقائك المقبولين فقط." },403);
       const recipientAccess = await getSubscriptionAccess(env,recipientId);
       if(recipientAccess.plan==="free"){maxLong=Math.min(maxLong,1280);maxShort=Math.min(maxShort,720)}
+      if(longSide>maxLong||shortSide>maxShort)return json({error:recipientAccess.plan==="free"&&access.plan!=="free"?"يمكن إرسال فيديوهات حتى 720p إلى الأصدقاء على الباقة المجانية.":"دقة الفيديو أعلى من الحد المسموح لباقتك أو باقة المستلم."},413);
       const id=crypto.randomUUID(), key="videos/"+me.id+"/"+id;
       const upload=await env.MEDIA.createMultipartUpload(key,{httpMetadata:{contentType:"application/octet-stream",cacheControl:"private, no-store"},customMetadata:{sender:me.id,recipient:recipientId}});
       await env.DB.prepare("INSERT INTO video_uploads (id,sender_id,recipient_id,object_key,upload_id,file_name,mime_type,file_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,me.id,recipientId,key,upload.uploadId,fileName,mime,size,new Date().toISOString()).run();

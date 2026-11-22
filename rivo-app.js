@@ -14,7 +14,7 @@ window.searchPeople=function(q){rivoSearch(q,"peopleResults")};
 window.searchFriends=function(q){if(!q.trim()){rivoLoadFriends();return}rivoSearch(q,"friendList")};
 window.openThread=function(name,letter,index,id){activeFriend=name;activeFriendId=id||"";document.getElementById("welcomePane").classList.add("hidden");["conversationsPage","friendsPage","profilePage","settingsPage"].forEach(function(x){document.getElementById(x).classList.add("hidden")});document.getElementById("threadPane").classList.remove("hidden");document.getElementById("threadName").textContent=name;var threadAvatar=document.getElementById("threadAvatar");threadAvatar.textContent=letter;if(activeFriendId){threadAvatar.dataset.avatarUser=activeFriendId;threadAvatar.dataset.avatarLoaded="";if(window.rivoLoadFriendAvatars)window.rivoLoadFriendAvatars()}document.getElementById("composeName").textContent=name;document.getElementById("headerTitle").textContent=name;document.querySelectorAll(".nav-item").forEach(function(x){x.classList.toggle("active",x.dataset.page==="conversations")});rivoLoadVideos();if(window.lucide)lucide.createIcons()};
 window.showApp=(function(original){return function(){original();rivoLoadFriends();rivoStartNotifications()}})(window.showApp);
-window.navigate=(function(original){return function(page,el){original(page,el);if(page==="friends"||page==="conversations")rivoLoadFriends()}})(window.navigate);
+window.navigate=(function(original){return function(page,el){original(page,el);if(page==="friends"||page==="conversations")rivoLoadFriends();if(page==="settings")rivoLoadPrivacySettings()}})(window.navigate);
 async function rivoLoadVideos(){var box=document.getElementById("threadContent");if(!activeFriendId){box.innerHTML='<p class="muted-note">اختر صديقاً لعرض الفيديوهات.</p>';return}box.innerHTML='<p class="muted-note">جارٍ تحميل الفيديوهات...</p>';try{var d=await api("/api/video-list?friendId="+encodeURIComponent(activeFriendId)),videos=d.videos||[];if(!videos.length){box.innerHTML='<div class="empty-state"><div class="empty-inner"><div class="empty-symbol"><i data-lucide="video"></i></div><h2>لا توجد فيديوهات بعد</h2><p>أرسل فيديو لصديقك أو انتظر فيديوهاته.</p></div></div>';if(window.lucide)lucide.createIcons();return}box.innerHTML=videos.map(function(v){var sent=v.sender_id!==activeFriendId;return '<article class="video-chat-card '+(sent?'sent':'received')+'"><video controls playsinline preload="metadata" src="/api/video-stream?id='+encodeURIComponent(v.id)+'"></video><div class="video-chat-meta"><span class="video-chat-name">'+(sent?'أرسلته · ':'استلمته · ')+rivoEsc(v.file_name)+'</span><time>'+(sent?(v.recipient_read_at?'<span class="read-receipt">✓✓ تمت المشاهدة</span>':'<span class="read-receipt">✓ تم الإرسال</span>'):'')+' '+new Date(v.created_at).toLocaleString("ar")+'</time></div></article>'}).join("");if(window.lucide)lucide.createIcons()}catch(e){box.innerHTML='<p class="muted-note">'+rivoEsc(e.message)+'</p>'}}
 window.uploadVideo=async function(file){
  if(!file)return;
@@ -69,3 +69,27 @@ document.addEventListener("click",function(e){var b=e.target.closest("[data-hide
 async function rivoDeleteAfterDownload(id){await api("/api/video-complete","POST",{id:id});toast("اكتمل التنزيل وحُذفت النسخة السحابية");rivoLoadVideos()}
 async function rivoDownload(id){try{var res=await fetch("/api/video-download?id="+encodeURIComponent(id),{credentials:"same-origin"});if(!res.ok){var err=await res.json().catch(function(){return {}});throw new Error(err.error||"تعذر تنزيل الفيديو")}if(window.showSaveFilePicker){var handle=await window.showSaveFilePicker({suggestedName:"RIVO-video"}),writer=await handle.createWritable();await res.body.pipeTo(writer);await rivoDeleteAfterDownload(id);return}var length=Number(res.headers.get("content-length")||0);if(length>300*1024*1024){if(res.body)await res.body.cancel();var a=document.createElement("a");a.href="/api/video-download?id="+encodeURIComponent(id);a.click();var box=document.getElementById("threadContent"),confirm=document.createElement("div");confirm.className="video-item";confirm.innerHTML='<b>بعد اكتمال حفظ الملف على جهازك</b><button class="video-download" data-confirm-download="'+rivoEsc(id)+'">تم التنزيل، احذف النسخة السحابية</button>';box.appendChild(confirm);toast("بعد انتهاء التنزيل اضغط تأكيد الحذف");return}var small=await res.blob(),u=URL.createObjectURL(small),link=document.createElement("a");link.href=u;link.download="RIVO-video";link.click();setTimeout(function(){URL.revokeObjectURL(u)},60000);await rivoDeleteAfterDownload(id)}catch(e){toast(e.message)}}
 document.addEventListener("click",function(e){var t=e.target.closest("[data-add-id],[data-accept-id],[data-open-id],[data-download-id],[data-confirm-download],[data-copy-handle]");if(!t)return;if(t.dataset.copyHandle){var copied="@"+t.dataset.copyHandle;if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(copied).then(function(){toast("تم نسخ "+copied)}).catch(function(){toast(copied)});else toast(copied)}else if(t.dataset.addId)rivoRequest(t.dataset.addId);else if(t.dataset.acceptId)rivoRespond(t.dataset.acceptId);else if(t.dataset.openId){var h=t.dataset.handle||"friend";window.openThread("@"+h,h.slice(0,1),0,t.dataset.openId)}else if(t.dataset.downloadId)rivoDownload(t.dataset.downloadId);else if(t.dataset.confirmDownload)rivoDeleteAfterDownload(t.dataset.confirmDownload)});
+
+window.rivoLoadPrivacySettings=async function(){
+ try{
+  var d=await api("/api/privacy"),toggle=document.getElementById("allowFriendRequests"),box=document.getElementById("blockedUsersList");
+  if(toggle)toggle.checked=!!d.allowFriendRequests;
+  if(box)box.innerHTML=(d.blocked||[]).length?d.blocked.map(function(u){return '<div class="search-result"><div class="detail"><b>@'+rivoEsc(u.handle)+'</b><small>ضمن قائمة الحظر</small></div><button class="friend-action" data-unblock-id="'+rivoEsc(u.id)+'">إلغاء الحظر</button></div>'}).join(""):'<p class="muted-note">لا يوجد مستخدمون محظورون.</p>';
+ }catch(e){toast(e.message)}
+};
+window.rivoSetFriendRequests=async function(enabled){
+ try{await api("/api/privacy","PUT",{allowFriendRequests:!!enabled});toast(enabled?"تم السماح بطلبات الصداقة":"تم إيقاف استقبال طلبات الصداقة")}
+ catch(e){var el=document.getElementById("allowFriendRequests");if(el)el.checked=!enabled;toast(e.message)}
+};
+window.rivoBlockByHandle=async function(){
+ var input=document.getElementById("blockUserHandle"),handle=(input&&input.value||"").trim();
+ if(!handle){toast("أدخل معرّف المستخدم أولاً");return}
+ if(!confirm("هل تريد حظر هذا المستخدم وإزالة الصداقة بينكما؟"))return;
+ try{await api("/api/privacy","POST",{action:"block",handle:handle});input.value="";if(activeFriendId){closeThread();activeFriendId="";activeFriend=""}await rivoLoadPrivacySettings();await rivoLoadFriends();toast("تم حظر المستخدم")}
+ catch(e){toast(e.message)}
+};
+async function rivoUnblockUser(id){
+ try{await api("/api/privacy","POST",{action:"unblock",userId:id});await rivoLoadPrivacySettings();toast("تم إلغاء الحظر")}
+ catch(e){toast(e.message)}
+}
+document.addEventListener("click",function(e){var b=e.target.closest("[data-unblock-id]");if(b){e.preventDefault();rivoUnblockUser(b.dataset.unblockId)}});

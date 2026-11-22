@@ -93,7 +93,6 @@ async function rivoUnblockUser(id){
  catch(e){toast(e.message)}
 }
 document.addEventListener("click",function(e){var b=e.target.closest("[data-unblock-id]");if(b){e.preventDefault();rivoUnblockUser(b.dataset.unblockId)}});
-\n
 window.rivoLoadSubscription=async function(){
  var current=document.getElementById("subscriptionCurrent"),members=document.getElementById("teamMembersList"),incoming=document.getElementById("teamIncomingInvites");
  try{
